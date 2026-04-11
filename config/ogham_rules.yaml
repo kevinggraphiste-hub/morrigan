@@ -1,0 +1,41 @@
+# ============================================
+# OGHAM — Règles de Raisonnement
+# ============================================
+# Base de règles pour le moteur symbolique.
+
+# Templates de structuration
+structure_templates:
+  comparison:
+    sections:
+      - "points_communs"
+      - "differences"
+      - "cas_usage"
+      - "recommandation"
+
+  explanation:
+    sections:
+      - "definition"
+      - "fonctionnement"
+      - "exemples"
+      - "implications"
+
+  analysis:
+    sections:
+      - "contexte"
+      - "elements"
+      - "relations"
+      - "conclusion"
+
+# Règles logiques de base (Phase 0)
+rules:
+  - name: "transitivité"
+    pattern: "si A implique B et B implique C alors A implique C"
+    type: "deduction"
+
+  - name: "comparaison"
+    pattern: "pour comparer X et Y, identifier les axes communs"
+    type: "structuring"
+
+  - name: "causalité"
+    pattern: "si X cause Y, chercher les mécanismes intermédiaires"
+    type: "reasoning"

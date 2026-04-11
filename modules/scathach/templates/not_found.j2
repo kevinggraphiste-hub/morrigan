@@ -1,0 +1,10 @@
+Je n'ai pas d'information precise sur "{{ query }}" dans ma memoire actuelle.
+
+{% if suggestions -%}
+Voici des sujets proches que je connais :
+{% for s in suggestions %}
+- {{ s }}
+{% endfor %}
+{%- else -%}
+Tu peux enrichir ma memoire via le script d'ingestion.
+{%- endif %}

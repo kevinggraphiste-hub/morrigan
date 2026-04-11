@@ -1,0 +1,27 @@
+# Morrigan — Docker Compose
+# Phase 0 : configuration de base
+
+version: "3.8"
+
+services:
+  morrigan:
+    build: .
+    container_name: morrigan
+    restart: unless-stopped
+    volumes:
+      - ./config:/app/config
+      - ./data:/app/data
+    environment:
+      - SUPABASE_URL=${SUPABASE_URL:-}
+      - SUPABASE_KEY=${SUPABASE_KEY:-}
+      - TELEGRAM_TOKEN=${TELEGRAM_TOKEN:-}
+    ports:
+      - "8080:8080"  # API REST (Phase 2)
+
+  # Redis pour la mémoire court terme (optionnel)
+  # redis:
+  #   image: redis:7-alpine
+  #   container_name: morrigan-redis
+  #   restart: unless-stopped
+  #   ports:
+  #     - "6379:6379"

@@ -1,0 +1,27 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+dist/
+build/
+.venv/
+venv/
+
+# IDE
+.vscode/
+.idea/
+
+# Environment
+.env
+*.env
+
+# Data (ne pas versionner les gros corpus)
+data/knowledge/*.bin
+data/training/*.bin
+data/logs/*.log
+
+# Models
+*.pt
+*.pth
+*.onnx
+*.bin

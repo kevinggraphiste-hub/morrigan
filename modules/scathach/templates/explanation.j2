@@ -1,0 +1,12 @@
+{% if chunks -%}
+{{ chunks[0].text }}
+{% if chunks|length > 1 %}
+
+Pour aller plus loin :
+{% for chunk in chunks[1:3] %}
+- {{ chunk.text }}
+{% endfor %}
+{% endif %}
+{%- else -%}
+Je n'ai pas d'information precise sur "{{ query }}" dans ma memoire.
+{%- endif %}

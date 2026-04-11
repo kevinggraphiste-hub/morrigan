@@ -1,0 +1,9 @@
+Pour comparer, voici les elements que j'ai trouves :
+
+{% for chunk in chunks[:5] %}
+{{ loop.index }}. {{ chunk.text }}
+{% endfor %}
+
+{% if synthesis -%}
+En synthese : {{ synthesis }}
+{%- endif %}

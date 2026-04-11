@@ -1,0 +1,46 @@
+# ============================================
+# MORRIGAN — Configuration Générale
+# ============================================
+
+project:
+  name: "Morrigan"
+  version: "0.1"
+  phase: 0
+  author: "Kevin (Scarlet Wolf)"
+
+# Orchestrateur An Dagda
+dagda:
+  default_timeout_seconds: 30
+  max_modules_per_query: 5
+  logging_level: "DEBUG"  # Phase recherche : on log tout
+
+# Modules actifs
+modules:
+  brigid:
+    enabled: true
+    phase: 0  # Squelette
+  ogham:
+    enabled: true
+    rules_path: "config/ogham_rules.yaml"
+  danann:
+    enabled: true
+    supabase_url: ""  # À configurer
+    supabase_key: ""  # À configurer
+    embedding_model: "all-MiniLM-L6-v2"
+  scathach:
+    enabled: true
+    backend: "template"  # "template", "rwkv", "mamba"
+  cauldron:
+    enabled: true
+    max_history: 20
+
+# Interfaces
+interfaces:
+  telegram:
+    enabled: false  # Activer quand le token est configuré
+    token: ""  # À configurer
+  cli:
+    enabled: true
+  api:
+    enabled: false
+    port: 8080

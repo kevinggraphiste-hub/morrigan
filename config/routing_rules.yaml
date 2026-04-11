@@ -1,0 +1,60 @@
+# ============================================
+# AN DAGDA — Règles de Routage
+# ============================================
+# Définit comment l'orchestrateur route les requêtes vers les modules.
+
+routing:
+  # Question factuelle : connaissances d'abord
+  factual:
+    modules: ["danann", "ogham", "scathach"]
+    description: "Recherche dans la mémoire, structure, puis génère"
+
+  # Raisonnement logique : logique d'abord
+  reasoning:
+    modules: ["ogham", "danann", "scathach"]
+    description: "Raisonne, complète avec des faits, puis génère"
+
+  # Tâche créative : intuition d'abord
+  creative:
+    modules: ["brigid", "scathach"]
+    description: "Associations créatives, puis mise en forme"
+
+  # Conversation courante : contexte d'abord
+  conversation:
+    modules: ["cauldron", "scathach"]
+    description: "Récupère le contexte, puis génère"
+
+  # Tâche complexe : tout le monde
+  complex:
+    modules: ["cauldron", "danann", "brigid", "ogham", "scathach"]
+    description: "Orchestration complète de tous les modules"
+
+# Mots-clés pour la classification Phase 0
+classification:
+  creative_keywords:
+    - "écris"
+    - "invente"
+    - "imagine"
+    - "poème"
+    - "histoire"
+    - "crée"
+    - "compose"
+    - "raconte"
+
+  reasoning_keywords:
+    - "pourquoi"
+    - "explique"
+    - "compare"
+    - "différence"
+    - "logique"
+    - "raisonne"
+    - "analyse"
+
+  factual_keywords:
+    - "qui est"
+    - "qu'est-ce"
+    - "quand"
+    - "où"
+    - "combien"
+    - "définition"
+    - "c'est quoi"

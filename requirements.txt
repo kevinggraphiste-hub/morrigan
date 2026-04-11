@@ -1,0 +1,27 @@
+# requirements.txt — Morrigan v0.1
+# Architecture IA Modulaire Post-LLM
+
+# Core ML
+torch>=2.0
+ncps                    # Neural Circuit Policies (Liquid Neural Networks)
+sentence-transformers   # Embeddings locaux
+numpy
+
+# Base de donnees & Memoire
+supabase               # Client Supabase (pgvector)
+redis                  # Memoire court terme (optionnel)
+
+# Moteur symbolique
+pyDatalog              # Moteur logique symbolique
+networkx               # Graphes de connaissances
+
+# Generation de texte (Phase 1)
+jinja2                 # Templates pour la generation de texte
+markovify              # Chaines de Markov pour la variabilite
+
+# Interface
+python-telegram-bot    # Interface Telegram
+
+# Configuration & Utilitaires
+pyyaml                 # Configuration YAML
+asyncio                # Orchestration asynchrone (stdlib)

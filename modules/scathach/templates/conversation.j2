@@ -1,0 +1,12 @@
+{%- if turn_count == 0 -%}
+Bonjour. Je suis Morrigan — comment puis-je t'aider ?
+{%- elif query_lower in ['salut', 'bonjour', 'hello', 'coucou', 'hey'] -%}
+Re-bonjour. Nous en sommes au tour {{ turn_count }}.
+{%- elif 'merci' in query_lower -%}
+Avec plaisir. Autre chose ?
+{%- elif 'au revoir' in query_lower or 'bye' in query_lower -%}
+A bientot.
+{%- else -%}
+Je t'ecoute : "{{ query }}"
+(Tour {{ turn_count }} — Phase 1 : la conversation libre viendra avec le backend RWKV)
+{%- endif %}
