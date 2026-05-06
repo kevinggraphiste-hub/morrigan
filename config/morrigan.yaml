@@ -4,7 +4,7 @@
 
 project:
   name: "Morrigan"
-  version: "0.1"
+  version: "0.1.0"
   phase: 0
   author: "Kevin (Scarlet Wolf)"
 
