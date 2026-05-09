@@ -5,6 +5,8 @@ Gere le stockage et la recherche de connaissances.
 Backends supportes :
 - "memory" : store en RAM (Phase 0, dev)
 - "supabase" : Supabase pgvector (Phase 1+, persistant)
+
+Phase 2 : metadonnees riches, reranker cross-encoder, filtrage par domaine/type.
 """
 
 import logging
@@ -17,6 +19,7 @@ import numpy as np
 
 from core.types import ModuleInput, ModuleOutput, MorriganModule
 from modules.danann.embeddings import EmbeddingEngine
+from modules.danann.reranker import CrossEncoderReranker
 from modules.danann.supabase_backend import SupabaseVectorStore
 
 logger = logging.getLogger("morrigan.danann")
@@ -61,9 +64,12 @@ class Danann(MorriganModule):
         supabase_key: str = "",
         embedding_model: str = "all-MiniLM-L6-v2",
         top_k: int = 5,
+        use_reranker: bool = True,
+        reranker_top_k: int = 3,
     ):
         self.backend = backend
         self.top_k = top_k
+        self.reranker_top_k = reranker_top_k
 
         # Store en memoire (toujours disponible en fallback)
         self.chunks: List[str] = []
@@ -72,6 +78,11 @@ class Danann(MorriganModule):
 
         # Moteur d'embeddings (lazy load)
         self.embedding_engine = EmbeddingEngine(model_name=embedding_model)
+
+        # Reranker cross-encoder (Phase 2, lazy load)
+        self.reranker: Optional[CrossEncoderReranker] = None
+        if use_reranker:
+            self.reranker = CrossEncoderReranker()
 
         # Backend Supabase (lazy init)
         self.supabase: Optional[SupabaseVectorStore] = None
@@ -84,7 +95,11 @@ class Danann(MorriganModule):
                 self.backend = "memory"
                 self.supabase = None
 
-        logger.info("Danann initialisee (backend=%s)", self.backend)
+        logger.info(
+            "Danann initialisee (backend=%s, reranker=%s)",
+            self.backend,
+            "on" if use_reranker else "off",
+        )
 
     def _ensure_embeddings_loaded(self) -> None:
         """Charge le modele d'embeddings si pas encore fait."""
@@ -133,9 +148,23 @@ class Danann(MorriganModule):
         return len(texts)
 
     def search(
-        self, query: str, top_k: Optional[int] = None
+        self,
+        query: str,
+        top_k: Optional[int] = None,
+        domain: Optional[str] = None,
+        chunk_type: Optional[str] = None,
     ) -> List[Tuple[str, float, Dict]]:
-        """Recherche les chunks les plus proches."""
+        """
+        Recherche les chunks les plus proches.
+
+        Phase 2 : filtrage optionnel par domaine/type + reranking cross-encoder.
+
+        Args:
+            query: requete utilisateur
+            top_k: nombre de resultats finaux
+            domain: filtrer par domaine (reseau, ia, mythologie, projet, code)
+            chunk_type: filtrer par type (definition, comparison, explanation, fact)
+        """
         k = top_k or self.top_k
         self._ensure_embeddings_loaded()
         query_emb = self.embedding_engine.encode([query])[0]
@@ -152,8 +181,8 @@ class Danann(MorriganModule):
         norms = np.linalg.norm(self.embeddings, axis=1) * np.linalg.norm(query_vec)
         scores = np.dot(self.embeddings, query_vec) / (norms + 1e-10)
 
-        # Boost lexical : +0.05 par token rare de la query present dans le chunk
-        # (plafonne a +0.20). Corrige les cas ou deux chunks ont un score cosine
+        # Boost lexical : +0.08 par token rare de la query present dans le chunk
+        # (plafonne a +0.30). Corrige les cas ou deux chunks ont un score cosine
         # proche mais un seul mentionne explicitement le sujet.
         query_tokens = _tokenize(query)
         if query_tokens:
@@ -164,11 +193,49 @@ class Danann(MorriganModule):
                 lexical_boost[i] = min(0.30, 0.08 * overlap)
             scores = scores + lexical_boost
 
-        top_indices = np.argsort(scores)[::-1][:k]
-        return [
+        # Phase 2 : filtrage par metadonnees (domain, type)
+        # On recupere plus de candidats pour compenser le filtrage
+        pre_k = k * 3 if (domain or chunk_type) else k
+        # Etendre aussi pour le reranker (il a besoin de plus de candidats)
+        if self.reranker:
+            pre_k = max(pre_k, k * 3)
+
+        top_indices = np.argsort(scores)[::-1][:pre_k]
+
+        candidates = [
             (self.chunks[i], float(scores[i]), self.metadata[i])
             for i in top_indices
         ]
+
+        # Filtrage par domaine
+        if domain:
+            candidates = [
+                (text, score, meta)
+                for text, score, meta in candidates
+                if meta.get("domain") == domain
+            ]
+
+        # Filtrage par type
+        if chunk_type:
+            candidates = [
+                (text, score, meta)
+                for text, score, meta in candidates
+                if meta.get("type") == chunk_type
+            ]
+
+        # Phase 2 : reranking cross-encoder sur les candidats
+        if self.reranker and candidates:
+            candidates = self.reranker.rerank(
+                query, candidates, top_k=k
+            )
+            logger.info(
+                "Danann: reranker applique sur %d candidats",
+                len(candidates),
+            )
+        else:
+            candidates = candidates[:k]
+
+        return candidates
 
     def count(self) -> int:
         """Nombre de chunks indexes."""
@@ -180,7 +247,13 @@ class Danann(MorriganModule):
         """Recherche dans la memoire vectorielle."""
         logger.info("Danann cherche: %s", input.query[:60])
 
-        results = self.search(input.query)
+        # Phase 2 : filtrage optionnel via parametres
+        domain = input.parameters.get("domain")
+        chunk_type = input.parameters.get("chunk_type")
+
+        results = self.search(
+            input.query, domain=domain, chunk_type=chunk_type
+        )
 
         if not results:
             return ModuleOutput(
@@ -204,8 +277,11 @@ class Danann(MorriganModule):
             confidence=float(top_score),
             metadata={
                 "backend": self.backend,
+                "reranker": "on" if self.reranker else "off",
                 "top_k": len(results),
                 "total_indexed": self.count(),
+                "filter_domain": domain,
+                "filter_type": chunk_type,
             },
         )
 
@@ -219,10 +295,13 @@ class Danann(MorriganModule):
             "name": "Danann",
             "type": "vector_memory",
             "backend": self.backend,
+            "reranker": "on" if self.reranker else "off",
             "capabilities": [
                 "semantic_search",
                 "knowledge_retrieval",
                 "fact_storage",
+                "metadata_filtering",
+                "cross_encoder_reranking",
             ],
             "indexed_chunks": self.count(),
         }

@@ -57,7 +57,10 @@ class Scathach(MorriganModule):
     Phase 1 : Templates Jinja2 avec bascule selon le contexte.
     """
 
-    # Seuil de similarite minimal pour considerer un chunk comme pertinent
+    # Seuil de similarite minimal pour considerer un chunk comme pertinent.
+    # Si le reranker est actif, on utilise le score cosine original
+    # (stocke dans metadata["score_cosine"]) car le score cross-encoder
+    # est sur une echelle differente (-inf, +inf).
     MIN_RELEVANCE_SCORE = 0.42
 
     def __init__(
@@ -113,10 +116,14 @@ class Scathach(MorriganModule):
         # Extraire le type de structure Ogham
         structure_type = self._extract_structure_type(previous)
 
-        # Filtrer les chunks par pertinence (seuil cosine + boost lexical)
-        relevant_chunks = [
-            c for c in chunks if c.get("score", 0) >= self.MIN_RELEVANCE_SCORE
-        ]
+        # Filtrer les chunks par pertinence.
+        # Si le reranker est actif, le "score" est le score cross-encoder
+        # (echelle -inf/+inf). On utilise score_cosine (original) pour le seuil.
+        relevant_chunks = []
+        for c in chunks:
+            cosine = c.get("metadata", {}).get("score_cosine", c.get("score", 0))
+            if cosine >= self.MIN_RELEVANCE_SCORE:
+                relevant_chunks.append(c)
 
         # Garde anti-faux-positif : au moins un token rare de la query
         # doit apparaitre dans le top chunk. Sinon on considere que c'est
@@ -145,11 +152,16 @@ class Scathach(MorriganModule):
             relevant_chunks = cleaned
 
         # Decider si on montre les chunks secondaires :
-        # seulement si proches en score du meilleur (evite les tangentes).
+        # seulement si proches en score cosine du meilleur (evite les tangentes).
+        # On utilise score_cosine pour comparer (echelle stable 0-1).
         show_extras = False
         if len(relevant_chunks) > 1:
-            top_score = relevant_chunks[0].get("score", 0)
-            second_score = relevant_chunks[1].get("score", 0)
+            def _cosine(c: Dict) -> float:
+                return c.get("metadata", {}).get(
+                    "score_cosine", c.get("score", 0)
+                )
+            top_score = _cosine(relevant_chunks[0])
+            second_score = _cosine(relevant_chunks[1])
             show_extras = second_score >= top_score * 0.90
         display_chunks = relevant_chunks if show_extras else relevant_chunks[:1]
 

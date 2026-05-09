@@ -69,3 +69,4 @@ class RoutingDecision:
     modules: List[str]              # Noms des modules à activer, dans l'ordre
     priority: str = "normal"        # "low", "normal", "high"
     reasoning: str = ""             # Pourquoi ce routage (debug/logging)
+    domain_hint: Optional[str] = None  # Phase 2 : indice de domaine (reseau, ia, mythologie, projet, code)

@@ -78,11 +78,47 @@ class AnDagda:
             except Exception as e:
                 logger.error("Module '%s': ERREUR — %s", name, e)
 
+    # Phase 2 : detection de domaine par mots-cles dans la query.
+    # Permet de passer un filtre domain= a Danann pour desambiguer
+    # (ex: "projet Morrigan" vs "Morrigan mythologie").
+    _DOMAIN_HINTS = {
+        "projet": ["projet morrigan", "le projet", "architecture morrigan",
+                    "module morrigan", "pipeline morrigan", "roadmap"],
+        "reseau": ["tcp", "udp", "http", "https", "dns", "ip ", "port ",
+                    "protocole", "firewall", "routage", "ssh", "tls",
+                    "reseau", "paquet", "serveur"],
+        "ia": ["transformer", "llm", "embedding", "neurone", "entrainement",
+               "inference", "mamba", "rwkv", "cfc", "lnn", "kan",
+               "intelligence artificielle", "deep learning", "machine learning"],
+        "mythologie": ["dieu", "deesse", "celtique", "druide", "tuatha",
+                       "dagda", "brigid", "ogham", "cuchulainn", "scathach",
+                       "mythologie", "legende"],
+        "code": ["python", "javascript", "bash", "sql", "html", "css",
+                 "fonction", "variable", "class ", "import ", "code"],
+    }
+
+    def _detect_domain_hint(self, query_norm: str) -> Optional[str]:
+        """Detecte un indice de domaine dans la query normalisee."""
+        scores: Dict[str, int] = {}
+        for domain, keywords in self._DOMAIN_HINTS.items():
+            score = sum(1 for kw in keywords if kw in query_norm)
+            if score > 0:
+                scores[domain] = score
+
+        if not scores:
+            return None
+
+        # Retourne le domaine avec le plus de hits
+        best = max(scores, key=scores.get)  # type: ignore
+        # Seuil : au moins 1 keyword match
+        return best if scores[best] >= 1 else None
+
     def classify_query(self, query: str) -> RoutingDecision:
         """
         Classifie une requête et détermine le plan de routage.
 
         Phase 0 : classification par mots-clés et heuristiques simples.
+        Phase 2 : ajout detection de domaine pour filtrage Danann.
         Phase 2+ : remplacé par Brigid-Classifier (LNN).
         """
         # Normalisation : lowercase + suppression accents
@@ -132,17 +168,22 @@ class AnDagda:
             query_norm.startswith(w) for w in interrogative_starts
         )
 
+        # Phase 2 : detection de domaine
+        domain_hint = self._detect_domain_hint(query_norm)
+
         if any(kw in query_norm for kw in creative_keywords):
             return RoutingDecision(
                 query_type=QueryType.CREATIVE,
                 modules=["brigid", "scathach"],
                 reasoning="Mots-clés créatifs détectés",
+                domain_hint=domain_hint,
             )
         elif any(kw in query_norm for kw in reasoning_keywords):
             return RoutingDecision(
                 query_type=QueryType.REASONING,
                 modules=["danann", "ogham", "scathach"],
                 reasoning="Mots-clés de raisonnement détectés",
+                domain_hint=domain_hint,
             )
         elif starts_interrogative or has_question_mark or any(
             kw in query_norm for kw in factual_keywords
@@ -151,12 +192,14 @@ class AnDagda:
                 query_type=QueryType.FACTUAL,
                 modules=["danann", "ogham", "scathach"],
                 reasoning="Question factuelle détectée",
+                domain_hint=domain_hint,
             )
         else:
             return RoutingDecision(
                 query_type=QueryType.CONVERSATION,
                 modules=["cauldron", "scathach"],
                 reasoning="Conversation courante (défaut)",
+                domain_hint=domain_hint,
             )
 
     async def process(self, user_input: str, session_id: str = "default") -> str:
@@ -173,16 +216,23 @@ class AnDagda:
         # 1. Classification
         routing = self.classify_query(user_input)
         logger.info(
-            "Routage: %s → %s (%s)",
+            "Routage: %s → %s (%s) domain=%s",
             routing.query_type.value,
             routing.modules,
             routing.reasoning,
+            routing.domain_hint,
         )
 
         # 2. Exécution séquentielle des modules
+        # Phase 2 : passer le domain_hint en parametre pour Danann
+        parameters = {}
+        if routing.domain_hint:
+            parameters["domain"] = routing.domain_hint
+
         module_input = ModuleInput(
             query=user_input,
             context={"session_id": session_id, "routing": routing},
+            parameters=parameters,
         )
 
         accumulated_result: Dict[str, Any] = {}
