@@ -1,0 +1,216 @@
+{"query": "Qui est Alan Turing ?", "label": "factual"}
+{"query": "Qui a inventé l'imprimerie ?", "label": "factual"}
+{"query": "Quelle est la capitale du Brésil ?", "label": "factual"}
+{"query": "Quelle est la date de naissance de Marie Curie ?", "label": "factual"}
+{"query": "C'est quoi l'ADN ?", "label": "factual"}
+{"query": "Donne-moi la définition de l'entropie.", "label": "factual"}
+{"query": "Quand a eu lieu la révolution française ?", "label": "factual"}
+{"query": "Où se trouve la mer Caspienne ?", "label": "factual"}
+{"query": "Combien y a-t-il de planètes dans le système solaire ?", "label": "factual"}
+{"query": "Liste les océans de la Terre.", "label": "factual"}
+{"query": "Cite les sept péchés capitaux.", "label": "factual"}
+{"query": "Nomme les présidents français depuis 2000.", "label": "factual"}
+{"query": "Qu'est-ce qu'un trou noir ?", "label": "factual"}
+{"query": "Quel est le plus haut sommet du monde ?", "label": "factual"}
+{"query": "Donne-moi la formule de l'eau.", "label": "factual"}
+{"query": "C'est quoi la TVA ?", "label": "factual"}
+{"query": "Quelle est l'origine du mot algorithme ?", "label": "factual"}
+{"query": "Qui a écrit Les Misérables ?", "label": "factual"}
+{"query": "En quelle année est mort Napoléon ?", "label": "factual"}
+{"query": "Quelle est la vitesse de la lumière ?", "label": "factual"}
+{"query": "Donne la définition d'un nombre premier.", "label": "factual"}
+{"query": "Liste les couleurs primaires.", "label": "factual"}
+{"query": "Qu'est-ce que la photosynthèse ?", "label": "factual"}
+{"query": "Combien d'éléments dans le tableau périodique ?", "label": "factual"}
+{"query": "Quelle est la langue officielle de la Suisse ?", "label": "factual"}
+{"query": "Cite les œuvres principales de Victor Hugo.", "label": "factual"}
+{"query": "Où est née la déesse Brigid dans la mythologie ?", "label": "factual"}
+{"query": "Quel est le PIB de la France ?", "label": "factual"}
+{"query": "C'est quoi un quark ?", "label": "factual"}
+{"query": "Quand l'Empire romain est-il tombé ?", "label": "factual"}
+{"query": "Qui a peint la Joconde ?", "label": "factual"}
+{"query": "Définis le concept de gravité.", "label": "factual"}
+{"query": "Que signifie la formule E=mc² ?", "label": "factual"}
+{"query": "Donne-moi des exemples de mammifères marins.", "label": "factual"}
+{"query": "Combien de chromosomes a l'humain ?", "label": "factual"}
+{"query": "Nomme les continents.", "label": "factual"}
+{"query": "Pourquoi le ciel est-il bleu ?", "label": "reasoning"}
+{"query": "Pourquoi la glace flotte sur l'eau ?", "label": "reasoning"}
+{"query": "Compare TCP et UDP.", "label": "reasoning"}
+{"query": "Quelle est la différence entre une bactérie et un virus ?", "label": "reasoning"}
+{"query": "Explique-moi le théorème de Pythagore.", "label": "reasoning"}
+{"query": "Analyse les causes de la Première Guerre mondiale.", "label": "reasoning"}
+{"query": "Comment fonctionne un moteur électrique ?", "label": "reasoning"}
+{"query": "Comment marche internet ?", "label": "reasoning"}
+{"query": "Pourquoi les feuilles changent de couleur en automne ?", "label": "reasoning"}
+{"query": "Compare le capitalisme et le socialisme.", "label": "reasoning"}
+{"query": "Différence entre HTTP et HTTPS.", "label": "reasoning"}
+{"query": "Explique le principe d'incertitude de Heisenberg.", "label": "reasoning"}
+{"query": "Raisonne sur les conséquences du réchauffement climatique.", "label": "reasoning"}
+{"query": "Pourquoi y a-t-il des saisons ?", "label": "reasoning"}
+{"query": "Compare l'approche fonctionnelle et l'approche orientée objet.", "label": "reasoning"}
+{"query": "Quelle différence entre un compilateur et un interpréteur ?", "label": "reasoning"}
+{"query": "Explique-moi la théorie de l'évolution.", "label": "reasoning"}
+{"query": "Comment fonctionne la mémoire vive ?", "label": "reasoning"}
+{"query": "Analyse les enjeux de la souveraineté numérique.", "label": "reasoning"}
+{"query": "Pourquoi la lune n'a-t-elle pas d'atmosphère ?", "label": "reasoning"}
+{"query": "Compare l'IA symbolique et l'IA connexionniste.", "label": "reasoning"}
+{"query": "Différence entre récursivité et itération.", "label": "reasoning"}
+{"query": "Explique pourquoi 0 factorielle vaut 1.", "label": "reasoning"}
+{"query": "Comment marche le chiffrement asymétrique ?", "label": "reasoning"}
+{"query": "Pourquoi les langues changent-elles au fil du temps ?", "label": "reasoning"}
+{"query": "Analyse le concept de souveraineté chez Rousseau.", "label": "reasoning"}
+{"query": "Compare PostgreSQL et MongoDB du point de vue de la cohérence.", "label": "reasoning"}
+{"query": "Quelle différence entre bonheur et plaisir selon Aristote ?", "label": "reasoning"}
+{"query": "Explique le mécanisme de la photosynthèse.", "label": "reasoning"}
+{"query": "Comment fonctionne la blockchain ?", "label": "reasoning"}
+{"query": "Pourquoi les chats ronronnent-ils ?", "label": "reasoning"}
+{"query": "Compare deux architectures CPU populaires.", "label": "reasoning"}
+{"query": "Différence entre Kubernetes et Docker Swarm.", "label": "reasoning"}
+{"query": "Explique le passage du paléolithique au néolithique.", "label": "reasoning"}
+{"query": "Raisonne sur les implications éthiques d'une AGI.", "label": "reasoning"}
+{"query": "Comment marche un onduleur ?", "label": "reasoning"}
+{"query": "Écris un poème sur l'automne.", "label": "creative"}
+{"query": "Invente une histoire courte avec un dragon végétarien.", "label": "creative"}
+{"query": "Imagine un dialogue entre Socrate et un ingénieur DevOps.", "label": "creative"}
+{"query": "Compose une chanson sur la pluie.", "label": "creative"}
+{"query": "Crée un personnage de roman fantastique en trois phrases.", "label": "creative"}
+{"query": "Raconte-moi une fable moderne sur les réseaux sociaux.", "label": "creative"}
+{"query": "Écris un haïku sur la solitude.", "label": "creative"}
+{"query": "Invente un univers parallèle où la gravité est inversée.", "label": "creative"}
+{"query": "Imagine la dernière page d'un roman triste.", "label": "creative"}
+{"query": "Crée une recette de cuisine totalement absurde.", "label": "creative"}
+{"query": "Compose une lettre d'adieu à un objet du quotidien.", "label": "creative"}
+{"query": "Écris un slogan publicitaire pour des chaussettes intelligentes.", "label": "creative"}
+{"query": "Invente une langue alien avec dix mots clés.", "label": "creative"}
+{"query": "Imagine un futur dans deux cents ans.", "label": "creative"}
+{"query": "Raconte la rencontre improbable entre une fée et un robot.", "label": "creative"}
+{"query": "Écris un poème en alexandrins sur l'IA.", "label": "creative"}
+{"query": "Crée un menu pour un restaurant de fantômes.", "label": "creative"}
+{"query": "Compose une berceuse pour une planète endormie.", "label": "creative"}
+{"query": "Invente un mythe de création celtique.", "label": "creative"}
+{"query": "Imagine une publicité pour le silence.", "label": "creative"}
+{"query": "Écris une nouvelle de cent mots.", "label": "creative"}
+{"query": "Raconte un voyage initiatique dans une bibliothèque infinie.", "label": "creative"}
+{"query": "Crée un nom et un blason pour un royaume imaginaire.", "label": "creative"}
+{"query": "Compose un dialogue théâtral en cinq répliques.", "label": "creative"}
+{"query": "Invente une nouvelle saveur de glace.", "label": "creative"}
+{"query": "Imagine une déesse celtique moderne du wifi.", "label": "creative"}
+{"query": "Écris une scène de bataille entre nuages.", "label": "creative"}
+{"query": "Crée un proverbe inventé sur la patience.", "label": "creative"}
+{"query": "Compose un manifeste pour les algorithmes lents.", "label": "creative"}
+{"query": "Raconte la dernière nuit d'un phare.", "label": "creative"}
+{"query": "Invente un sport pratiqué sur la lune.", "label": "creative"}
+{"query": "Écris une lettre d'amour entre deux serveurs.", "label": "creative"}
+{"query": "Imagine le journal intime d'un nuage.", "label": "creative"}
+{"query": "Crée un poème pour un programme qui rêve.", "label": "creative"}
+{"query": "Compose un haïku sur le café.", "label": "creative"}
+{"query": "Raconte un conte celtique sur les corbeaux.", "label": "creative"}
+{"query": "Salut !", "label": "conversation"}
+{"query": "Bonjour Morrigan.", "label": "conversation"}
+{"query": "Bonsoir.", "label": "conversation"}
+{"query": "Hello.", "label": "conversation"}
+{"query": "Hey, ça va ?", "label": "conversation"}
+{"query": "Coucou.", "label": "conversation"}
+{"query": "Yo, comment tu vas ?", "label": "conversation"}
+{"query": "Ça va aujourd'hui ?", "label": "conversation"}
+{"query": "Comment ça va ?", "label": "conversation"}
+{"query": "Comment tu vas ?", "label": "conversation"}
+{"query": "Comment vas-tu ?", "label": "conversation"}
+{"query": "Quoi de neuf ?", "label": "conversation"}
+{"query": "Tu vas bien ?", "label": "conversation"}
+{"query": "Bien et toi ?", "label": "conversation"}
+{"query": "Merci beaucoup.", "label": "conversation"}
+{"query": "Merci !", "label": "conversation"}
+{"query": "Merci pour tout.", "label": "conversation"}
+{"query": "Au revoir.", "label": "conversation"}
+{"query": "À plus tard.", "label": "conversation"}
+{"query": "À bientôt.", "label": "conversation"}
+{"query": "Bonne nuit.", "label": "conversation"}
+{"query": "Bonne journée.", "label": "conversation"}
+{"query": "Tu fais quoi ?", "label": "conversation"}
+{"query": "Raconte-moi ta journée.", "label": "conversation"}
+{"query": "C'est sympa de te parler.", "label": "conversation"}
+{"query": "T'es au top.", "label": "conversation"}
+{"query": "Bravo pour ton travail.", "label": "conversation"}
+{"query": "Excuse-moi pour tout à l'heure.", "label": "conversation"}
+{"query": "Pas de souci !", "label": "conversation"}
+{"query": "Carrément.", "label": "conversation"}
+{"query": "Cool, merci.", "label": "conversation"}
+{"query": "Tu es de bonne humeur ?", "label": "conversation"}
+{"query": "T'as bien dormi ?", "label": "conversation"}
+{"query": "Ça fait plaisir de te revoir.", "label": "conversation"}
+{"query": "On se reparle bientôt.", "label": "conversation"}
+{"query": "Allez, à demain.", "label": "conversation"}
+{"query": "Cherche dans la doc puis écris-moi un résumé en trois points.", "label": "complex"}
+{"query": "D'abord trouve les œuvres de Hugo, ensuite classe-les par date.", "label": "complex"}
+{"query": "Compare TCP et UDP puis donne un exemple de cas d'usage pour chacun.", "label": "complex"}
+{"query": "Trouve les définitions de Brigid et Morrigan, puis raconte leur relation.", "label": "complex"}
+{"query": "Liste les présidents français depuis 2000 et ajoute leur durée de mandat.", "label": "complex"}
+{"query": "Compare PostgreSQL et MongoDB et conclue quel choix pour un blog.", "label": "complex"}
+{"query": "Cherche les causes du réchauffement climatique puis propose trois actions individuelles.", "label": "complex"}
+{"query": "Écris un poème sur la mer après m'avoir donné cinq mots associés.", "label": "complex"}
+{"query": "Explique la photosynthèse puis fais un schéma textuel.", "label": "complex"}
+{"query": "Compare les langages Rust et Go, donne un benchmark, puis recommande-en un.", "label": "complex"}
+{"query": "Trouve une recette de pain puis adapte-la sans gluten.", "label": "complex"}
+{"query": "Cite les ennéagrammes puis analyse mon profil à partir de ce que tu sais.", "label": "complex"}
+{"query": "Donne-moi la définition d'un trou noir puis explique-moi pourquoi ils sont mystérieux.", "label": "complex"}
+{"query": "Cherche une citation de Marie Curie puis commente-la.", "label": "complex"}
+{"query": "Compare deux modèles de Liquid Neural Network puis explique le choix d'un CfC.", "label": "complex"}
+{"query": "Liste les bases vectorielles courantes puis indique laquelle convient à un projet local.", "label": "complex"}
+{"query": "Trouve les éléments essentiels d'un CV puis génère-en un pour un développeur Python junior.", "label": "complex"}
+{"query": "Explique-moi la théorie des cordes puis donne ses limites empiriques.", "label": "complex"}
+{"query": "Compare deux méthodes d'enseignement, propose une synthèse, puis applique à une classe de seconde.", "label": "complex"}
+{"query": "Donne-moi un plan de cours sur l'IA puis détaille la première séance.", "label": "complex"}
+{"query": "Cherche les principales bibliothèques NLP en Python puis recommande celle adaptée au français.", "label": "complex"}
+{"query": "Liste les œuvres majeures du symbolisme puis choisis celle qui ouvre la sélection.", "label": "complex"}
+{"query": "Explique comment fonctionne un transformer puis compare-le à un RNN.", "label": "complex"}
+{"query": "Donne-moi un script de tâches matinales puis adapte-le pour un télétravailleur.", "label": "complex"}
+{"query": "Compare les méthodes pour entraîner un classifieur d'intention puis suggère la plus simple.", "label": "complex"}
+{"query": "Trouve les races de chiens de berger puis recommande-en une pour la ville.", "label": "complex"}
+{"query": "Liste les pollens allergisants en mai puis explique comment éviter une crise.", "label": "complex"}
+{"query": "Donne la définition d'un mythe puis raconte un mythe celtique court.", "label": "complex"}
+{"query": "Cherche les principales révoltes au XIXe siècle puis classe-les par impact.", "label": "complex"}
+{"query": "Compare deux distributions Linux puis choisis la mieux adaptée à un débutant.", "label": "complex"}
+{"query": "Recense les architectures de réseaux liquides puis détaille l'une d'elles.", "label": "complex"}
+{"query": "Liste les couleurs primaires en peinture et en lumière puis explique la différence.", "label": "complex"}
+{"query": "Trouve les attributs de la déesse Morrigan puis applique-les comme métaphore pour un projet IA.", "label": "complex"}
+{"query": "Donne-moi une routine de stretching puis adapte-la à quelqu'un d'assis 8h.", "label": "complex"}
+{"query": "Explique-moi pourquoi le ciel est bleu puis pourquoi il devient rouge au coucher.", "label": "complex"}
+{"query": "Compare deux approches de compression d'embeddings puis recommande-en une pour 8 Go de RAM.", "label": "complex"}
+{"query": "Comment faire une boucle for en Python ?", "label": "code"}
+{"query": "Quelle est la syntaxe d'une list comprehension ?", "label": "code"}
+{"query": "Explique-moi try/except en Python.", "label": "code"}
+{"query": "Comment trier un dict par valeur ?", "label": "code"}
+{"query": "Différence entre list et tuple en Python ?", "label": "code"}
+{"query": "Comment ouvrir un fichier en lecture ?", "label": "code"}
+{"query": "C'est quoi un décorateur en Python ?", "label": "code"}
+{"query": "Donne un exemple de classe Python avec __init__.", "label": "code"}
+{"query": "Comment importer un module Python ?", "label": "code"}
+{"query": "Quelle différence entre map et filter en Python ?", "label": "code"}
+{"query": "Comment déclarer une variable en JavaScript ?", "label": "code"}
+{"query": "Différence entre let, const et var en JS ?", "label": "code"}
+{"query": "Comment faire une promesse async en JavaScript ?", "label": "code"}
+{"query": "C'est quoi un closure en JavaScript ?", "label": "code"}
+{"query": "Comment lancer un script bash au démarrage ?", "label": "code"}
+{"query": "Quelle est la syntaxe d'un if en bash ?", "label": "code"}
+{"query": "Comment passer des arguments à un script shell ?", "label": "code"}
+{"query": "Différence entre $* et $@ en bash ?", "label": "code"}
+{"query": "Comment faire un SELECT avec JOIN en SQL ?", "label": "code"}
+{"query": "Différence entre INNER JOIN et LEFT JOIN ?", "label": "code"}
+{"query": "Comment créer un index sur PostgreSQL ?", "label": "code"}
+{"query": "C'est quoi une foreign key en SQL ?", "label": "code"}
+{"query": "Comment centrer un div en CSS ?", "label": "code"}
+{"query": "Différence entre flex et grid en CSS ?", "label": "code"}
+{"query": "Comment écrire un sélecteur CSS pour un attribut ?", "label": "code"}
+{"query": "C'est quoi le BFC en CSS ?", "label": "code"}
+{"query": "Comment structurer un HTML5 sémantique ?", "label": "code"}
+{"query": "Différence entre une balise inline et block ?", "label": "code"}
+{"query": "Comment ajouter un favicon en HTML ?", "label": "code"}
+{"query": "Explique-moi git rebase versus git merge.", "label": "code"}
+{"query": "Comment créer une branche en git ?", "label": "code"}
+{"query": "C'est quoi un commit signé ?", "label": "code"}
+{"query": "Comment écrire un Dockerfile pour Python ?", "label": "code"}
+{"query": "Différence entre COPY et ADD dans un Dockerfile ?", "label": "code"}
+{"query": "Comment monter un volume Docker ?", "label": "code"}
+{"query": "C'est quoi un microservice ?", "label": "code"}
