@@ -1,0 +1,55 @@
+name: release
+
+# Déclenché sur push d'un tag annoté `vX.Y.Z`. Vérifie la cohérence
+# tag ↔ `core/__version__.py` ↔ CHANGELOG, extrait la section CHANGELOG
+# correspondante et crée la GitHub Release avec ces notes.
+#
+# Aucun déploiement n'est branché ici (morrigan tourne en local) ; ce
+# workflow ne fait que créer la release et son artefact côté GitHub.
+#
+# Gotcha : la section CHANGELOG `## [X.Y.Z] - YYYY-MM-DD` doit exister
+# AVANT le push du tag. Sinon `extract_release_notes.py` sort en erreur
+# et aucune release n'est créée — comportement volontaire, voir la
+# mémoire `gungnir-release-changelog-gotcha`.
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write  # gh release create
+
+jobs:
+  release:
+    name: GitHub Release pour ${{ github.ref_name }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # nécessaire à `--verify-tag`
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Vérifie cohérence tag ↔ version ↔ CHANGELOG
+        run: python scripts/check_version_sync.py --tag "${{ github.ref_name }}"
+
+      - name: Extrait les notes du CHANGELOG
+        run: |
+          python scripts/extract_release_notes.py "${{ github.ref_name }}" > release-notes.md
+          echo "--- Aperçu des notes ---"
+          cat release-notes.md
+
+      - name: Crée la GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "${{ github.ref_name }}" \
+            --title "${{ github.ref_name }}" \
+            --notes-file release-notes.md \
+            --verify-tag
