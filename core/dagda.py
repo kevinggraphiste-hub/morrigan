@@ -117,28 +117,91 @@ class AnDagda:
     # Phase 2 : detection de fence markdown ```lang ... ``` (signal fort code).
     _CODE_FENCE_PATTERN = re.compile(r"```\w*\s*\n", re.MULTILINE)
 
+    # Phase 2+ : seuil minimal de confidence Brigid pour court-circuiter
+    # les heuristiques. Sous ce seuil, on tombe sur les mots-clés (qui
+    # font mieux sur les cas ambigus pour le modèle, ex: "pourquoi" en
+    # début de phrase = reasoning fort, alors que Brigid peut hésiter
+    # entre factual/reasoning sur du général).
+    BRIGID_CONFIDENCE_THRESHOLD = 0.5
+
+    # Mapping unifié QueryType → liste de modules dans l'ordre d'exécution.
+    # Utilisé pour les routages Brigid ET heuristiques pour éviter les
+    # divergences silencieuses.
+    _ROUTING_MAP: Dict[QueryType, List[str]] = {
+        QueryType.FACTUAL: ["danann", "ogham", "scathach"],
+        QueryType.REASONING: ["danann", "ogham", "scathach"],
+        QueryType.CREATIVE: ["brigid", "scathach"],
+        QueryType.CONVERSATION: ["cauldron", "scathach"],
+        QueryType.COMPLEX: ["cauldron", "danann", "brigid", "ogham", "scathach"],
+        QueryType.CODE: ["morrigan_code", "scathach"],
+    }
+
+    def _route_via_brigid(
+        self, query: str, query_norm: str
+    ) -> Optional[RoutingDecision]:
+        """Tente une classification via Brigid (LNN). Renvoie None si
+        Brigid n'est pas registered, pas chargeable, ou pas assez sûr.
+
+        L'appelant doit alors fallback aux heuristiques.
+        """
+        brigid = self.modules.get("brigid")
+        if brigid is None or not hasattr(brigid, "classify_intent"):
+            return None
+
+        classif = brigid.classify_intent(query)
+        if classif is None:
+            return None  # checkpoint indisponible
+        if classif.confidence < self.BRIGID_CONFIDENCE_THRESHOLD:
+            logger.info(
+                "Brigid : %s (%.2f) sous le seuil %.2f → fallback heuristiques",
+                classif.label, classif.confidence, self.BRIGID_CONFIDENCE_THRESHOLD,
+            )
+            return None
+
+        try:
+            qt = QueryType(classif.label)
+        except ValueError:
+            # Label Brigid hors enum (ne devrait pas arriver si LABELS
+            # est sync avec QueryType — garde-fou).
+            logger.warning("Brigid : label inconnu %r → fallback", classif.label)
+            return None
+
+        return RoutingDecision(
+            query_type=qt,
+            modules=self._ROUTING_MAP[qt],
+            reasoning=f"Brigid LNN (confidence {classif.confidence:.2f})",
+            domain_hint=self._detect_domain_hint(query_norm),
+        )
+
     def classify_query(self, query: str) -> RoutingDecision:
         """
         Classifie une requête et détermine le plan de routage.
 
-        Phase 0 : classification par mots-clés et heuristiques simples.
-        Phase 2 : ajout detection de domaine pour filtrage Danann +
-                  detection de code (fence markdown) → QueryType.CODE.
-        Phase 2+ : remplacé par Brigid-Classifier (LNN).
+        Ordre de décision :
+          1. Fence markdown ```lang … ``` → CODE (signal trop fort pour discuter)
+          2. Brigid-Classifier (LNN/CfC) si registered et confidence ≥ seuil
+          3. Heuristiques mots-clés (fallback, ex-Phase 0)
+
+        Le step 2 est désactivé silencieusement si Brigid est absent,
+        non-trained, ou peu confiant — pas de régression côté routage.
         """
-        # Phase 2 : code en priorite absolue si fence markdown detectee.
+        # 1. code en priorite absolue si fence markdown detectee.
         if self._CODE_FENCE_PATTERN.search(query):
             return RoutingDecision(
                 query_type=QueryType.CODE,
-                modules=["morrigan_code", "scathach"],
+                modules=self._ROUTING_MAP[QueryType.CODE],
                 reasoning="Bloc de code détecté (fence markdown)",
                 domain_hint="code",
             )
 
-        # Normalisation : lowercase + suppression accents
-        # pour matcher "différence" == "difference", "où" == "ou", etc.
         query_norm = _normalize(query.strip())
 
+        # 2. Brigid LNN si dispo et confiant.
+        brigid_decision = self._route_via_brigid(query, query_norm)
+        if brigid_decision is not None:
+            return brigid_decision
+
+        # 3. Heuristiques mots-clés (fallback).
         # Salutations : priorite absolue -> conversation
         greetings = (
             "salut", "bonjour", "bonsoir", "hello", "hey", "coucou",
@@ -149,7 +212,7 @@ class AnDagda:
                for g in greetings):
             return RoutingDecision(
                 query_type=QueryType.CONVERSATION,
-                modules=["cauldron", "scathach"],
+                modules=self._ROUTING_MAP[QueryType.CONVERSATION],
                 reasoning="Salutation ou conversation sociale",
             )
 
@@ -186,35 +249,26 @@ class AnDagda:
         domain_hint = self._detect_domain_hint(query_norm)
 
         if any(kw in query_norm for kw in creative_keywords):
-            return RoutingDecision(
-                query_type=QueryType.CREATIVE,
-                modules=["brigid", "scathach"],
-                reasoning="Mots-clés créatifs détectés",
-                domain_hint=domain_hint,
-            )
+            qt = QueryType.CREATIVE
+            reason = "Mots-clés créatifs détectés"
         elif any(kw in query_norm for kw in reasoning_keywords):
-            return RoutingDecision(
-                query_type=QueryType.REASONING,
-                modules=["danann", "ogham", "scathach"],
-                reasoning="Mots-clés de raisonnement détectés",
-                domain_hint=domain_hint,
-            )
+            qt = QueryType.REASONING
+            reason = "Mots-clés de raisonnement détectés"
         elif starts_interrogative or has_question_mark or any(
             kw in query_norm for kw in factual_keywords
         ):
-            return RoutingDecision(
-                query_type=QueryType.FACTUAL,
-                modules=["danann", "ogham", "scathach"],
-                reasoning="Question factuelle détectée",
-                domain_hint=domain_hint,
-            )
+            qt = QueryType.FACTUAL
+            reason = "Question factuelle détectée"
         else:
-            return RoutingDecision(
-                query_type=QueryType.CONVERSATION,
-                modules=["cauldron", "scathach"],
-                reasoning="Conversation courante (défaut)",
-                domain_hint=domain_hint,
-            )
+            qt = QueryType.CONVERSATION
+            reason = "Conversation courante (défaut)"
+
+        return RoutingDecision(
+            query_type=qt,
+            modules=self._ROUTING_MAP[qt],
+            reasoning=reason,
+            domain_hint=domain_hint,
+        )
 
     async def process(self, user_input: str, session_id: str = "default") -> str:
         """
