@@ -1,0 +1,80 @@
+name: brigid-train
+
+# Réentraîne le classifieur d'intention Brigid sur chaque PR qui touche
+# le dataset, le modèle, l'embedder, le script de training ou ce
+# workflow. La CI échoue si val_accuracy < seuil configuré dans
+# `scripts/train_brigid.py` (--min-accuracy, défaut 0.65). Aucun
+# checkpoint n'est commité dans le repo (option B) — uploadé en
+# artefact GitHub pour inspection/debug.
+#
+# Cache HF Hub : MiniLM (~80 MB) téléchargé au premier run, réutilisé
+# ensuite via actions/cache sur ~/.cache/huggingface/.
+
+on:
+  pull_request:
+    paths:
+      - "data/training/intent_classification.jsonl"
+      - "modules/brigid/**"
+      - "scripts/train_brigid.py"
+      - "requirements.txt"
+      - ".github/workflows/brigid-train.yml"
+  push:
+    branches: [main]
+    paths:
+      - "data/training/intent_classification.jsonl"
+      - "modules/brigid/**"
+      - "scripts/train_brigid.py"
+
+concurrency:
+  group: brigid-train-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  train:
+    name: train Brigid CfC (val_acc >= seuil)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: requirements.txt
+
+      - name: Cache HuggingFace Hub (MiniLM ~80 MB)
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/huggingface
+          # Le nom du modèle est gelé dans embedder.py (EMBED_MODEL_NAME),
+          # donc une clé fixe suffit ; on bumpera la suffixe si on change
+          # de modèle d'embedding.
+          key: hf-hub-minilm-l6-v2
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Train
+        run: |
+          python scripts/train_brigid.py \
+            --epochs 80 \
+            --seed 42 \
+            --min-accuracy 0.65 \
+            --log-every 10
+
+      - name: Upload checkpoint as artifact
+        if: always()  # même si min-accuracy non atteint, on garde le .pt pour debug
+        uses: actions/upload-artifact@v4
+        with:
+          name: brigid-cfc-checkpoint
+          path: data/models/brigid_cfc.pt
+          if-no-files-found: warn
+          retention-days: 14
