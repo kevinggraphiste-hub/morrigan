@@ -38,7 +38,7 @@ from pathlib import Path
 from typing import Any, Dict, Optional, Tuple
 
 from core.types import ModuleInput, ModuleOutput, MorriganModule
-from modules.brigid.dataset import LABELS
+from modules.brigid.dataset import ID_TO_LABEL, LABELS
 
 logger = logging.getLogger("morrigan.brigid")
 
@@ -53,6 +53,20 @@ DEFAULT_CHECKPOINT_PATH = (
     / "models"
     / "brigid_cfc.pt"
 )
+
+
+@dataclass(frozen=True)
+class IntentClassification:
+    """Résultat de la classification d'intention par Brigid.
+
+    `label` est l'un des canoniques de `LABELS` (et donc un `QueryType.value`),
+    `confidence` est la probabilité du label gagnant (max-softmax),
+    `probabilities` mappe **chaque** label à sa proba pour traçabilité.
+    """
+
+    label: str
+    confidence: float
+    probabilities: Dict[str, float]
 
 
 @dataclass
@@ -206,38 +220,131 @@ def load_checkpoint(path: Path = DEFAULT_CHECKPOINT_PATH):
     return model
 
 
-# ─── Brigid (MorriganModule) — toujours placeholder en PR B ─────────
+# ─── Brigid (MorriganModule) — vraie inférence CfC en PR C ──────────
 
 
 class Brigid(MorriganModule):
     """
-    Module neuronal de Morrigan.
+    Module neuronal de Morrigan — classifieur d'intention CfC.
 
-    PR B (cette PR) : `IntentClassifier` et `train_brigid.py` livrés,
-    mais `Brigid.process()` reste un placeholder. C'est volontaire :
-    PR C wire le classifieur ici et dans An Dagda en une étape
-    atomique testable séparément.
+    PR C : `Brigid.process()` charge le checkpoint au premier appel
+    (lazy), encode la query via MiniLM, forward CfC, renvoie label +
+    confidence + probas par classe. Le checkpoint est cherché à
+    `DEFAULT_CHECKPOINT_PATH` sauf passage explicite via constructeur.
 
-    PR C : `process()` charge le checkpoint via `load_checkpoint()`,
-    embed la query, fait la forward pass, renvoie label + confidence.
+    Dégradation gracieuse : si le checkpoint manque (ex: dev qui n'a pas
+    encore entraîné), `process()` renvoie un `ModuleOutput` invalide avec
+    un message explicite — pas de crash, et An Dagda repasse sur ses
+    heuristiques mots-clés (fallback).
     """
 
-    def __init__(self) -> None:
-        self.initialized = False
-        logger.info("Brigid (LNN) — squelette ; classifieur livré en PR B mais non wiré")
+    def __init__(self, checkpoint_path: Optional[Path] = None) -> None:
+        self._checkpoint_path = checkpoint_path or DEFAULT_CHECKPOINT_PATH
+        self._model = None  # chargé au 1er appel
+        self._load_error: Optional[str] = None
+        logger.info(
+            "Brigid (LNN/CfC) — sera chargée depuis %s au premier appel",
+            self._checkpoint_path,
+        )
+
+    def _try_load(self) -> bool:
+        """Tente de charger le checkpoint. Renvoie True si OK."""
+        if self._model is not None:
+            return True
+        if self._load_error is not None:
+            return False  # déjà tenté, déjà échoué — on n'insiste pas
+        try:
+            self._model = load_checkpoint(self._checkpoint_path)
+            logger.info("Brigid : checkpoint chargé depuis %s", self._checkpoint_path)
+            return True
+        except (FileNotFoundError, ValueError) as e:
+            self._load_error = str(e)
+            logger.warning(
+                "Brigid : checkpoint non disponible (%s) — An Dagda tombera "
+                "sur ses heuristiques.",
+                e,
+            )
+            return False
+
+    def classify_intent(self, query: str) -> Optional[IntentClassification]:
+        """Classifie une query en label + confidence + probas.
+
+        API sync, utilisable directement par An Dagda.classify_query
+        (qui est sync). Renvoie `None` si le checkpoint n'est pas
+        chargeable — l'appelant doit alors fallback.
+        """
+        if not self._try_load():
+            return None
+
+        import torch  # noqa: PLC0415
+        from modules.brigid.embedder import get_embedder  # noqa: PLC0415
+
+        # Encode → forward → softmax
+        embedding = get_embedder().encode_one(query).unsqueeze(0)  # (1, 384)
+        with torch.no_grad():
+            logits = self._model(embedding)  # (1, num_classes)
+            probas = torch.softmax(logits, dim=1).squeeze(0)  # (num_classes,)
+
+        confidence, best_idx = probas.max(dim=0)
+        label = ID_TO_LABEL[int(best_idx.item())]
+
+        # Toutes les probas pour traçabilité (debug / Cauldron / metadata).
+        all_probas = {
+            ID_TO_LABEL[i]: float(probas[i].item()) for i in range(len(LABELS))
+        }
+        return IntentClassification(
+            label=label,
+            confidence=float(confidence.item()),
+            probabilities=all_probas,
+        )
 
     async def process(self, input: ModuleInput) -> ModuleOutput:
+        """Interface MorriganModule — délègue à classify_intent (sync)."""
         logger.info("Brigid traite: %s", input.query[:60])
+        classif = self.classify_intent(input.query)
+
+        if classif is None:
+            # Checkpoint indisponible — renvoie un output dégradé, ne pas
+            # lever d'exception pour ne pas casser le pipeline.
+            return ModuleOutput(
+                result={"classification": None},
+                confidence=0.0,
+                metadata={
+                    "phase": 2,
+                    "model": "CfC",
+                    "loaded": False,
+                    "error": self._load_error,
+                },
+                errors=[self._load_error or "Checkpoint non chargeable"],
+            )
+
         return ModuleOutput(
-            result={"patterns": [], "classification": "unknown"},
-            confidence=0.1,
-            metadata={"phase": 0, "note": "Squelette — wiring en PR C"},
+            result={
+                "classification": classif.label,
+                "probabilities": classif.probabilities,
+            },
+            confidence=classif.confidence,
+            metadata={
+                "phase": 2,
+                "model": "CfC",
+                "loaded": True,
+                "checkpoint": str(self._checkpoint_path),
+            },
         )
 
     async def health_check(self) -> bool:
+        """Considère Brigid healthy si le checkpoint est chargeable.
+
+        Renvoie quand même `True` si le checkpoint est juste absent —
+        c'est un mode dégradé attendu (dev avant entraînement), pas une
+        défaillance. L'erreur est loguée à l'`__init__`.
+        """
+        # Tentative au premier health_check pour valider le chargement.
+        self._try_load()
         return True
 
     def get_capabilities(self) -> Dict[str, Any]:
+        loaded = self._model is not None
         return {
             "name": "Brigid",
             "type": "neural_network",
@@ -247,5 +354,6 @@ class Brigid(MorriganModule):
                 "semantic_encoding",
                 "creative_association",
             ],
-            "phase": 0,
+            "phase": 2 if loaded else 1,
+            "checkpoint_loaded": loaded,
         }
