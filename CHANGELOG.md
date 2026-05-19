@@ -60,6 +60,30 @@ code seront livrés.
   `split_train_val` *stratifié* et déterministe (chaque classe est
   garantie présente en train et en val), `class_balance`. Ordre des
   `LABELS` gelé pour stabilité des checkpoints futurs.
+- **`modules/brigid/embedder.py`** : wrapper singleton autour de
+  `sentence-transformers/all-MiniLM-L6-v2` (même modèle que Danann →
+  cache HF partagé). Force CPU (cohérent avec la philo « PC modeste »).
+- **`modules/brigid/model.py`** : `IntentClassifier` réel basé sur
+  `ncps.torch.CfC` (Liquid Time-Constant Closed-form). Architecture
+  compacte : 384-D → CfC(16) → Linear(6) ≈ **60 K paramètres**,
+  checkpoint ~240 KB. Helpers `save_checkpoint` / `load_checkpoint`
+  avec métadonnées (input_dim, hidden_dim, labels, embed_model_name,
+  accuracy) et garde-fous : refuse de charger un checkpoint dont
+  l'embedder ou l'ordre des LABELS ne correspond plus.
+- **`scripts/train_brigid.py`** : entraînement complet (load JSONL →
+  embed → split stratifié → AdamW + CrossEntropy → eval val ↔ best
+  state → save). Métriques par classe. Code retour non nul si
+  `val_accuracy < --min-accuracy` (0.65 par défaut) — utilisé comme
+  garde-fou CI. Premier run réel : **val_acc 0.882** sur 80 époques /
+  402 train / 102 val, 7s sur CPU.
+- **`.github/workflows/brigid-train.yml`** : réentraîne le CfC sur
+  chaque PR/push touchant dataset, modèle, embedder ou script de
+  training. Cache HuggingFace Hub (MiniLM ~80 MB). Échec dur si
+  val_accuracy < 0.65. Checkpoint uploadé en artefact GitHub
+  (rétention 14 j) pour debug.
+- **`tests/test_brigid_model.py`** : 13 tests CfC — construction,
+  déterminisme par seed, forward shapes, save/load roundtrip, refus
+  de checkpoints incompatibles (embedder, labels).
 
 ### Modifié
 - `core/types.py` : ajout `QueryType.CODE`.
