@@ -169,3 +169,61 @@ def test_module_health_check_and_capabilities():
     caps = mod.get_capabilities()
     assert caps["domain"] == "code"
     assert "python" in caps["languages"]
+
+
+# ─── Integration An Dagda + Scathach ───────────────────────────────
+
+
+def test_dagda_routes_code_query_to_morrigan_code():
+    """Une query avec fence markdown doit etre routee vers QueryType.CODE."""
+    from core.dagda import AnDagda
+    from core.types import QueryType
+
+    dagda = AnDagda()
+    query = "Verifie ce code :\n```python\ndef f(): return 1\n```"
+    routing = dagda.classify_query(query)
+    assert routing.query_type == QueryType.CODE
+    assert routing.modules == ["morrigan_code", "scathach"]
+    assert routing.domain_hint == "code"
+
+
+def test_dagda_no_code_fence_no_code_routing():
+    """Sans fence markdown, pas de routing CODE."""
+    from core.dagda import AnDagda
+    from core.types import QueryType
+
+    dagda = AnDagda()
+    routing = dagda.classify_query("Qui est Alan Turing ?")
+    assert routing.query_type != QueryType.CODE
+
+
+def test_pipeline_code_query_end_to_end():
+    """Pipeline Dagda → MorriganCode → Scathach sur une query code valide."""
+    from core.dagda import AnDagda
+    from modules.scathach.generator import Scathach
+
+    dagda = AnDagda()
+    dagda.register_module("morrigan_code", MorriganCode())
+    dagda.register_module("scathach", Scathach())
+
+    query = "Verifie ce code :\n```python\ndef hello(): return 'hi'\n```"
+    response = asyncio.run(dagda.process(query))
+
+    assert response is not None
+    assert len(response) > 0
+    assert "hello" in response or "valide" in response.lower()
+
+
+def test_pipeline_code_query_with_syntax_error():
+    """Pipeline sur du code casse : doit signaler une erreur."""
+    from core.dagda import AnDagda
+    from modules.scathach.generator import Scathach
+
+    dagda = AnDagda()
+    dagda.register_module("morrigan_code", MorriganCode())
+    dagda.register_module("scathach", Scathach())
+
+    query = "Verifie :\n```python\ndef f(:\nreturn 1\n```"
+    response = asyncio.run(dagda.process(query))
+
+    assert "erreur" in response.lower() or "erreurs" in response.lower()

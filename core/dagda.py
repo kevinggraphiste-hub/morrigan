@@ -8,6 +8,7 @@ dans quel ordre, et assemble les résultats.
 
 import asyncio
 import logging
+import re
 import time
 import unicodedata
 from typing import Any, Dict, List, Optional
@@ -113,14 +114,27 @@ class AnDagda:
         # Seuil : au moins 1 keyword match
         return best if scores[best] >= 1 else None
 
+    # Phase 2 : detection de fence markdown ```lang ... ``` (signal fort code).
+    _CODE_FENCE_PATTERN = re.compile(r"```\w*\s*\n", re.MULTILINE)
+
     def classify_query(self, query: str) -> RoutingDecision:
         """
         Classifie une requête et détermine le plan de routage.
 
         Phase 0 : classification par mots-clés et heuristiques simples.
-        Phase 2 : ajout detection de domaine pour filtrage Danann.
+        Phase 2 : ajout detection de domaine pour filtrage Danann +
+                  detection de code (fence markdown) → QueryType.CODE.
         Phase 2+ : remplacé par Brigid-Classifier (LNN).
         """
+        # Phase 2 : code en priorite absolue si fence markdown detectee.
+        if self._CODE_FENCE_PATTERN.search(query):
+            return RoutingDecision(
+                query_type=QueryType.CODE,
+                modules=["morrigan_code", "scathach"],
+                reasoning="Bloc de code détecté (fence markdown)",
+                domain_hint="code",
+            )
+
         # Normalisation : lowercase + suppression accents
         # pour matcher "différence" == "difference", "où" == "ou", etc.
         query_norm = _normalize(query.strip())

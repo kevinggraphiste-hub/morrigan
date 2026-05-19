@@ -18,6 +18,7 @@ class QueryType(Enum):
     CREATIVE = "creative"           # Tâche créative → BRIGID + SCÁTHACH
     CONVERSATION = "conversation"   # Conversation courante → CAULDRON + SCÁTHACH
     COMPLEX = "complex"             # Multi-étapes → tous les modules
+    CODE = "code"                   # Bloc de code à vérifier → MORRIGAN-CODE + SCÁTHACH
     UNKNOWN = "unknown"
 
 

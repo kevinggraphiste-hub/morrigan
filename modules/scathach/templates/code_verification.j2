@@ -1,0 +1,40 @@
+{%- if blocks_verified == 0 -%}
+Je n'ai pas pu verifier de code dans ta question. Aucun bloc n'a ete detecte ou aucun langage supporte n'a ete trouve.
+{%- elif all_valid -%}
+J'ai verifie {{ blocks_verified }} bloc{{ 's' if blocks_verified > 1 else '' }} de code. Tout est syntaxiquement valide.
+{%- for v in verified -%}
+{%- if not v.skipped %}
+
+Bloc {{ loop.index }} ({{ v.language }}) :
+{%- set s = v.structure -%}
+{%- if s.functions %}
+  - Fonctions definies : {{ s.functions|join(", ") }}
+{%- endif %}
+{%- if s.classes %}
+  - Classes definies : {{ s.classes|join(", ") }}
+{%- endif %}
+{%- if s.imports %}
+  - Imports : {{ s.imports|join(", ") }}
+{%- endif %}
+{%- if s.has_main_guard %}
+  - Point d'entree `if __name__ == "__main__"` present
+{%- endif %}
+{%- if v.warnings %}
+  - Avertissements : {{ v.warnings|join("; ") }}
+{%- endif %}
+{%- endif -%}
+{%- endfor -%}
+{%- else -%}
+J'ai trouve des erreurs dans le code.
+{%- for v in verified -%}
+{%- if not v.skipped %}
+
+Bloc {{ loop.index }} ({{ v.language }}) :
+{%- if v.valid %}
+  Valide.
+{%- else %}
+  Erreurs : {{ v.errors|join("; ") }}
+{%- endif -%}
+{%- endif -%}
+{%- endfor -%}
+{%- endif -%}

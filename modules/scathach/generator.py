@@ -90,7 +90,11 @@ class Scathach(MorriganModule):
         previous = input.context.get("previous_results", {})
 
         if self.backend == "template":
-            response = self._render_from_modules(input.query, previous)
+            # Phase 2 : si Morrigan-Code a tourne, on rend sa verification.
+            if "morrigan_code" in previous:
+                response = self._render_code_verification(input.query, previous)
+            else:
+                response = self._render_from_modules(input.query, previous)
         else:
             response = f"[Backend '{self.backend}' non implemente]"
 
@@ -208,6 +212,23 @@ class Scathach(MorriganModule):
             turn_count=turn_count,
         )
 
+    def _render_code_verification(
+        self, query: str, previous: Dict[str, Any]
+    ) -> str:
+        """Rend la verification Morrigan-Code via le template dedie."""
+        code_out = previous.get("morrigan_code")
+        if not code_out or not isinstance(code_out.result, dict):
+            return self._render("not_found.j2", query=query, suggestions=[])
+
+        result = code_out.result
+        return self._render(
+            "code_verification.j2",
+            query=query,
+            verified=result.get("verified", []),
+            all_valid=result.get("all_valid", False),
+            blocks_verified=code_out.metadata.get("blocks_verified", 0),
+        )
+
     def _render(self, template_name: str, **context: Any) -> str:
         """Rend un template Jinja2 avec le contexte fourni."""
         try:
@@ -239,7 +260,7 @@ class Scathach(MorriganModule):
 
     async def health_check(self) -> bool:
         # Verifier que les templates existent
-        required = ["factual.j2", "comparison.j2", "explanation.j2", "conversation.j2", "not_found.j2"]
+        required = ["factual.j2", "comparison.j2", "explanation.j2", "conversation.j2", "not_found.j2", "code_verification.j2"]
         for t in required:
             if not (self.templates_dir / t).exists():
                 logger.warning("Template manquant: %s", t)
