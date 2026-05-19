@@ -322,7 +322,9 @@ des architectures IA post-LLM (Ogma, Munnin, Vargr, Gungnir).
 
 ## Licence
 
-À déterminer (probablement MIT ou Apache 2.0 — en cours de réflexion).
+**Propriétaire — tous droits réservés.** Copyright © 2026 Kevin (Scarlet Wolf).
+Voir le fichier [`LICENSE`](LICENSE). Aucun usage, copie, modification ou
+distribution n'est autorisé sans accord écrit préalable du titulaire.
 
 ---
 
