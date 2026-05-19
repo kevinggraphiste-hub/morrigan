@@ -84,9 +84,35 @@ code seront livrés.
 - **`tests/test_brigid_model.py`** : 13 tests CfC — construction,
   déterminisme par seed, forward shapes, save/load roundtrip, refus
   de checkpoints incompatibles (embedder, labels).
+- **Brigid wirée dans An Dagda (PR C)** :
+  - `Brigid.classify_intent(query)` (sync) — encode + forward + softmax
+    → `IntentClassification(label, confidence, probabilities)`. Lazy-load
+    du checkpoint au 1er appel. Renvoie `None` si checkpoint absent
+    (dégradation gracieuse, pas d'exception).
+  - `Brigid.process()` (async) délègue à `classify_intent` et renvoie
+    un `ModuleOutput` cohérent — `phase=2` quand le modèle est chargé,
+    `errors` non vide sinon.
+  - `An Dagda.classify_query()` consulte Brigid en premier ; au-dessus
+    de `BRIGID_CONFIDENCE_THRESHOLD = 0.5`, route via la prédiction
+    LNN ; sinon (Brigid absent, checkpoint manquant, ou confidence
+    faible) → fallback heuristiques mots-clés. Le shortcut fence
+    markdown garde la priorité absolue.
+  - Mapping unifié `_ROUTING_MAP: Dict[QueryType, List[str]]` —
+    source de vérité partagée entre routages Brigid et heuristiques,
+    évite les divergences silencieuses.
+- **`tests/test_brigid_inference.py`** : 11 tests d'intégration
+  (classify_intent shapes/confidence, process success/dégradé,
+  health_check, An Dagda utilise Brigid quand confiant, fallback
+  quand faible/absent, fence markdown garde priorité, mapping complet).
+  Fixture session-scopée : réutilise `data/models/brigid_cfc.pt` s'il
+  existe, sinon entraîne un mini-modèle (20 époques) à la volée.
 
 ### Modifié
 - `core/types.py` : ajout `QueryType.CODE`.
+- `tests/test_brigid.py` : mis à jour pour le nouveau contrat Brigid
+  (phase 0 → 1 sans checkpoint, 2 chargé ; mode dégradé sans
+  exception). Les vraies validations d'inférence sont dans
+  `test_brigid_inference.py`.
 - `tests/test_ogham.py::test_ogham_process` et
   `tests/test_scathach.py::test_scathach_template_generation` marqués
   `@pytest.mark.xfail(strict=False)` — pré-existants depuis le commit
