@@ -51,11 +51,11 @@ code seront livrés.
   la première section versionnée de ce changelog.
 - **`release.yml`** déclenché sur tag `v*`, qui extrait la section
   CHANGELOG correspondante et crée la GitHub Release.
-- **Dataset de classification d'intention Brigid** : 216 exemples
+- **Dataset de classification d'intention Brigid** : 504 exemples
   curatés en français dans `data/training/intent_classification.jsonl`,
-  équilibrés 36 × 6 classes (`factual`, `reasoning`, `creative`,
-  `conversation`, `complex`, `code`). Première brique de la roadmap
-  « Brigid entraînée (CfC 200-500 ex) ».
+  équilibrés 84 × 6 classes (`factual`, `reasoning`, `creative`,
+  `conversation`, `complex`, `code`), 0 doublon. Couvre la borne haute
+  de la roadmap « Brigid entraînée (CfC 200-500 ex) ».
 - **`modules/brigid/dataset.py`** : `LabeledExample`, `load_dataset`,
   `split_train_val` *stratifié* et déterministe (chaque classe est
   garantie présente en train et en val), `class_balance`. Ordre des
