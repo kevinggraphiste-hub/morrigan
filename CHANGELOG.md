@@ -23,9 +23,19 @@ code seront livrés.
   top candidats du retriever Danann, avec métadonnées riches par chunk
   (type, domaine, source, version, confiance) et filtrage par domaine.
 - **Module Morrigan-Code** (`modules/morrigan_code/`) — premier agent
-  spécialisé : vérifieur AST Python via la stdlib `ast`. Extrait
-  imports, fonctions (sync + async), classes, `if __name__ == "__main__"`.
-  Skip propre des langages non encore supportés.
+  spécialisé. Vérifieurs syntaxiques par langage :
+  - **Python** via stdlib `ast` (imports, fonctions sync + async,
+    classes, `if __name__ == "__main__"`).
+  - **Bash** via `bash -n` (fonctions, shebang).
+  - **JavaScript** via `node --input-type=module --check` (fonctions,
+    classes, imports ESM/CJS).
+  - **SQL** via `sqlparse` (structure — pas validation stricte par
+    dialecte, limitation assumée).
+  - **HTML** via stdlib `html.parser` + suivi de pile (balises non
+    fermées, fermetures orphelines, void elements).
+  - **CSS** via `tinycss2` (erreurs de parse CSS3, at-rules).
+  Registry avec alias usuels (py, sh/shell, js/node). Skip propre des
+  langages non encore supportés (Rust, TypeScript, …).
 - **Routage code** dans An Dagda : détection d'un fence markdown
   ` ```lang ... ``` ` dans la query → `QueryType.CODE` →
   pipeline `[morrigan_code, scathach]`.
