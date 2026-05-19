@@ -48,8 +48,11 @@ class MorriganCode(MorriganModule):
     """
     Module agent specialise pour le domaine code.
 
-    Phase 2 (initial) : verification syntaxique Python via AST.
-    Phase 2+ : JS/TS, Bash, SQL, HTML/CSS.
+    Phase 2 : verification syntaxique Python (ast), Bash (bash -n),
+              JavaScript (node --check), SQL (sqlparse), HTML (html.parser),
+              CSS (tinycss2). Cf. verifier.py pour le detail et les
+              limitations par langage.
+    Phase 2+ : TypeScript (tsc), validation SQL stricte par dialecte.
 
     Capacites :
       - Verifier les blocs de code dans une query (fences markdown)
@@ -59,7 +62,10 @@ class MorriganCode(MorriganModule):
     """
 
     def __init__(self) -> None:
-        self.languages = list(VERIFIERS.keys())
+        # Liste *canonique* (pas les alias) — VERIFIERS contient `py` ET
+        # `python` qui pointent vers le même verifieur, on dédoublonne par
+        # `v.language` pour l'affichage et les capabilities.
+        self.languages = sorted({v.language for v in VERIFIERS.values()})
         logger.info(
             "Morrigan-Code initialisee (langages: %s)",
             ", ".join(self.languages),

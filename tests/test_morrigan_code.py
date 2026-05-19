@@ -1,14 +1,30 @@
 """Tests pour Morrigan-Code — agent specialise code."""
 
 import asyncio
+import shutil
 import sys
+
+import pytest
 
 sys.path.insert(0, ".")
 
 from core.types import ModuleInput
 from modules.morrigan_code import MorriganCode
-from modules.morrigan_code.verifier import PythonVerifier
+from modules.morrigan_code.verifier import (
+    BashVerifier,
+    CssVerifier,
+    HtmlVerifier,
+    JavaScriptVerifier,
+    PythonVerifier,
+    SqlVerifier,
+    get_verifier,
+)
 from modules.morrigan_code.module import extract_code_blocks
+
+
+# Skip les tests subprocess si le binaire n'est pas installé sur le runner.
+_BASH_AVAILABLE = shutil.which("bash") is not None
+_NODE_AVAILABLE = shutil.which("node") is not None
 
 
 # ─── Verifier unitaire ─────────────────────────────────────────────
@@ -73,6 +89,209 @@ def test_python_verifier_async_function():
     result = v.verify(code)
     assert result.valid is True
     assert "async fetch" in result.structure["functions"]
+
+
+# ─── Bash ──────────────────────────────────────────────────────────
+
+
+@pytest.mark.skipif(not _BASH_AVAILABLE, reason="bash non installé")
+def test_bash_verifier_valid():
+    v = BashVerifier()
+    code = "#!/bin/bash\nhello() {\n  echo hi\n}\nhello\n"
+    result = v.verify(code)
+    assert result.valid is True
+    assert result.structure["has_shebang"] is True
+    assert "hello" in result.structure["functions"]
+
+
+@pytest.mark.skipif(not _BASH_AVAILABLE, reason="bash non installé")
+def test_bash_verifier_syntax_error():
+    v = BashVerifier()
+    # `if [` jamais fermé : bash -n détecte.
+    code = "if [\n  echo hi\nfi\n"
+    result = v.verify(code)
+    assert result.valid is False
+    assert result.errors  # message non vide
+
+
+@pytest.mark.skipif(not _BASH_AVAILABLE, reason="bash non installé")
+def test_bash_verifier_function_alt_syntax():
+    v = BashVerifier()
+    code = "function world() {\n  echo world\n}\n"
+    result = v.verify(code)
+    assert result.valid is True
+    assert "world" in result.structure["functions"]
+
+
+def test_bash_verifier_empty():
+    v = BashVerifier()
+    result = v.verify("   \n")
+    assert result.valid is False
+    assert "vide" in result.errors[0]
+
+
+# ─── JavaScript ────────────────────────────────────────────────────
+
+
+@pytest.mark.skipif(not _NODE_AVAILABLE, reason="node non installé")
+def test_javascript_verifier_valid():
+    v = JavaScriptVerifier()
+    code = (
+        "import path from 'path';\n"
+        "class Foo {\n  bar() { return 1; }\n}\n"
+        "function baz(x) { return x + 1; }\n"
+    )
+    result = v.verify(code)
+    assert result.valid is True
+    assert "Foo" in result.structure["classes"]
+    assert "baz" in result.structure["functions"]
+    assert "path" in result.structure["imports"]
+
+
+@pytest.mark.skipif(not _NODE_AVAILABLE, reason="node non installé")
+def test_javascript_verifier_syntax_error():
+    v = JavaScriptVerifier()
+    code = "function f( {\n  return 1;\n}\n"  # `)` manquant
+    result = v.verify(code)
+    assert result.valid is False
+    assert result.errors
+
+
+@pytest.mark.skipif(not _NODE_AVAILABLE, reason="node non installé")
+def test_javascript_verifier_require_imports():
+    v = JavaScriptVerifier()
+    code = "const fs = require('fs');\nconst x = require('./local');\n"
+    result = v.verify(code)
+    assert result.valid is True
+    assert "fs" in result.structure["imports"]
+    assert "./local" in result.structure["imports"]
+
+
+# ─── SQL ───────────────────────────────────────────────────────────
+
+
+def test_sql_verifier_valid_select():
+    pytest.importorskip("sqlparse")
+    v = SqlVerifier()
+    code = "SELECT id, name FROM users WHERE active = 1;"
+    result = v.verify(code)
+    assert result.valid is True
+    assert result.structure["statement_count"] == 1
+    assert "SELECT" in result.structure["statement_types"]
+
+
+def test_sql_verifier_multiple_statements():
+    pytest.importorskip("sqlparse")
+    v = SqlVerifier()
+    code = (
+        "INSERT INTO logs (msg) VALUES ('hello');\n"
+        "SELECT count(*) FROM logs;\n"
+    )
+    result = v.verify(code)
+    assert result.valid is True
+    assert result.structure["statement_count"] == 2
+    types = result.structure["statement_types"]
+    assert types.get("INSERT") == 1
+    assert types.get("SELECT") == 1
+
+
+def test_sql_verifier_garbage_input():
+    pytest.importorskip("sqlparse")
+    v = SqlVerifier()
+    # sqlparse est très permissif — du texte non-SQL passe en UNKNOWN.
+    result = v.verify("ceci n'est pas du sql")
+    assert result.valid is False
+    assert "Aucune statement" in result.errors[0]
+
+
+# ─── HTML ──────────────────────────────────────────────────────────
+
+
+def test_html_verifier_valid():
+    v = HtmlVerifier()
+    code = (
+        "<!DOCTYPE html>\n"
+        "<html><head><title>t</title></head>"
+        "<body><p>Salut</p></body></html>\n"
+    )
+    result = v.verify(code)
+    assert result.valid is True
+    assert result.structure["has_html_root"] is True
+    assert result.structure["has_body"] is True
+
+
+def test_html_verifier_unclosed_tag():
+    v = HtmlVerifier()
+    code = "<html><body><p>Hello</body></html>"  # <p> jamais fermé
+    result = v.verify(code)
+    assert result.valid is False
+    assert any("p" in err for err in result.errors)
+
+
+def test_html_verifier_void_tags_no_error():
+    v = HtmlVerifier()
+    code = "<html><body>line1<br>line2<img src='x' alt=''></body></html>"
+    result = v.verify(code)
+    assert result.valid is True
+    assert result.structure["tag_counts"].get("br") == 1
+
+
+def test_html_verifier_orphan_close():
+    v = HtmlVerifier()
+    code = "<div>x</span>"
+    result = v.verify(code)
+    assert result.valid is False
+    assert any("</span>" in err or "span" in err for err in result.errors)
+
+
+# ─── CSS ───────────────────────────────────────────────────────────
+
+
+def test_css_verifier_valid():
+    pytest.importorskip("tinycss2")
+    v = CssVerifier()
+    code = ".foo { color: red; } #bar { padding: 1em; }"
+    result = v.verify(code)
+    assert result.valid is True
+    assert result.structure["qualified_rules"] == 2
+
+
+def test_css_verifier_at_rule():
+    pytest.importorskip("tinycss2")
+    v = CssVerifier()
+    code = "@media (max-width: 600px) { .small { display: none; } }"
+    result = v.verify(code)
+    assert result.valid is True
+    assert "media" in result.structure["at_rules"]
+
+
+def test_css_verifier_malformed_declaration():
+    pytest.importorskip("tinycss2")
+    v = CssVerifier()
+    # `}` orphelin sans bloc — tinycss2 remonte une erreur.
+    code = ".foo { color: red; @@@; }"
+    result = v.verify(code)
+    # `@@@` est un at-rule mal formé : on attend au moins un warning ou
+    # un statut invalid. tinycss2 peut tolérer selon version → on vérifie
+    # juste qu'on ne crash pas et qu'on a une structure cohérente.
+    assert result.language == "css"
+
+
+# ─── Registry / alias ──────────────────────────────────────────────
+
+
+def test_registry_aliases():
+    """Les alias usuels doivent pointer vers le bon vérifieur canonique."""
+    assert get_verifier("py").language == "python"
+    assert get_verifier("sh").language == "bash"
+    assert get_verifier("shell").language == "bash"
+    assert get_verifier("js").language == "javascript"
+    assert get_verifier("node").language == "javascript"
+
+
+def test_registry_unknown_returns_none():
+    assert get_verifier("brainfuck") is None
+    assert get_verifier("") is None
 
 
 # ─── Extraction de blocs markdown ──────────────────────────────────

@@ -19,6 +19,10 @@ networkx               # Graphes de connaissances
 jinja2                 # Templates pour la generation de texte
 markovify              # Chaines de Markov pour la variabilite
 
+# Verifieurs Morrigan-Code (Phase 2)
+sqlparse               # Parser SQL (structure ; cf. SqlVerifier pour limitations)
+tinycss2               # Parser CSS3 utilise par CssVerifier
+
 # Interface
 python-telegram-bot    # Interface Telegram
 
