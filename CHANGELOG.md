@@ -142,6 +142,34 @@ code seront livrés.
   PR/push touchant corpus, extracteur, knowledge_graph ou le script.
   Échec si en dessous des seuils. KG uploadé en artefact GitHub
   (rétention 14 j) pour debug. Symétrique au workflow `brigid-train`.
+- **Ogham branché sur le KG (PR 4 du chantier KG)** :
+  `Ogham.process()` charge le KG en lazy au 1er appel et l'utilise
+  pour enrichir les réponses. Détection des requêtes via patterns FR :
+  - `Compare X et Y` / `Différence entre X et Y` / `X vs Y` →
+    `kg.compare(a, b)` → structure `compare` avec `common_neighbors`,
+    `a_only`, `b_only`, `direct_relations` (JSON-safe pour Scáthach).
+  - `Qu'est-ce que X` / `C'est quoi X` / `Définition de X` /
+    `Parle-moi de X` / `Qui est X` → `kg.facts_about(slug(X))` →
+    structure `facts` avec liste de relations.
+  - Résolution d'entités multi-candidats (slug complet + mots
+    individuels) pour absorber « les protocoles TCP » → `tcp`.
+  - Dégradation gracieuse : sans KG dispo (corpus pas indexé,
+    `kg.json` absent), `compare`/`facts` restent `None` et Ogham
+    fonctionne comme avant (templates + chunks). `metadata.kg_loaded`
+    + `kg_load_error` exposent l'état pour debug.
+  - Contrat stable : `result["type"]` vaut désormais
+    **`"structured_response"`** (et plus `comparison`/`explanation`
+    selon le sous-type — déplacé sous `result["structure_type"]`).
+- **`tests/test_ogham_kg_integration.py`** : 12 tests E2E. Mini-KG
+  TCP/UDP/IP/Brigid en fixture pour tests autonomes (pas de dépendance
+  au build sur disque). Couvre dégradation gracieuse, compare avec/
+  sans match, patterns FR multiples, capabilities.
+
+### Réparé
+- **`tests/test_ogham.py::test_ogham_process`** : **xfailed depuis le
+  commit initial cdc66ce, passe enfin**. Le contrat stable
+  `result["type"] == "structured_response"` est désormais respecté.
+  Marker `@pytest.mark.xfail` retiré.
 
 ### Modifié
 - `core/types.py` : ajout `QueryType.CODE`.
