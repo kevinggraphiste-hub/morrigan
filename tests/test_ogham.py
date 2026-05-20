@@ -3,8 +3,6 @@
 import asyncio
 import sys
 
-import pytest
-
 sys.path.insert(0, ".")
 
 from core.types import ModuleInput
@@ -16,16 +14,13 @@ def test_ogham_health():
     assert asyncio.run(ogham.health_check()) is True
 
 
-@pytest.mark.xfail(
-    reason=(
-        "Pré-existant depuis le commit initial cdc66ce — Ogham.process ne "
-        "renvoie pas encore de réponse structurée pour les requêtes de "
-        "comparaison. À reprendre quand Ogham passera de pyDatalog minimal "
-        "au knowledge graph (Phase 2)."
-    ),
-    strict=False,
-)
 def test_ogham_process():
+    """Test rétabli (PR 4 du chantier KG, ex-xfail depuis cdc66ce).
+
+    Avec ou sans KG chargé, Ogham.process doit toujours renvoyer un
+    `ModuleOutput.result["type"] == "structured_response"` — c'est le
+    contrat stable vis-à-vis des consommateurs (Scáthach).
+    """
     ogham = Ogham()
     input_data = ModuleInput(query="Compare TCP et UDP", context={})
     output = asyncio.run(ogham.process(input_data))
