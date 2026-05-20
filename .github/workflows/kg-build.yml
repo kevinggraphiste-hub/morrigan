@@ -1,0 +1,73 @@
+name: kg-build
+
+# Reconstruit le knowledge graph Ogham à chaque PR/push touchant le
+# corpus, l'extracteur, le knowledge_graph lui-même ou ce workflow.
+# Échec si moins d'entités/relations que les seuils (garde-fou contre
+# un corpus vidé ou un extracteur cassé silencieusement).
+#
+# Le KG produit est gitignoré ; il est uploadé en artefact GitHub
+# (rétention 14 j) pour debug — symétrique au workflow brigid-train.
+
+on:
+  pull_request:
+    paths:
+      - "data/knowledge/**"
+      - "modules/ogham/knowledge_graph.py"
+      - "modules/ogham/extractor.py"
+      - "scripts/build_knowledge_graph.py"
+      - ".github/workflows/kg-build.yml"
+  push:
+    branches: [main]
+    paths:
+      - "data/knowledge/**"
+      - "modules/ogham/knowledge_graph.py"
+      - "modules/ogham/extractor.py"
+      - "scripts/build_knowledge_graph.py"
+
+concurrency:
+  group: kg-build-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: build KG (≥ seuils)
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: requirements.txt
+
+      - name: Install minimal deps
+        # Seul networkx + pyyaml sont nécessaires pour ce script — pas
+        # besoin de torch ou sentence-transformers ici. On installe
+        # quand même requirements.txt complet pour rester aligné avec
+        # tests.yml et profiter du cache pip partagé.
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Build knowledge graph
+        run: |
+          python scripts/build_knowledge_graph.py \
+            --min-entities 50 \
+            --min-relations 100 \
+            --top 15
+
+      - name: Upload KG as artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: knowledge-graph
+          path: data/models/knowledge_graph.json
+          if-no-files-found: warn
+          retention-days: 14
