@@ -25,3 +25,11 @@ data/logs/*.log
 *.pth
 *.onnx
 *.bin
+
+# Artefacts produits par les scripts (option B : on commit le code +
+# le corpus source, pas les sorties dérivées qui sont régénérables).
+data/models/*.json
+
+# Env supplémentaires
+.venv-uv/
+.venv-*/
