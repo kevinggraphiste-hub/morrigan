@@ -129,9 +129,24 @@ code seront livrés.
   129 entités, 282 relations**, `compare("tcp", "udp")` capture déjà
   les bonnes distinctions (`protocole` commun, `fiable`/`rapide`
   distinctifs). +27 tests.
+- **`scripts/build_knowledge_graph.py` (PR 3 du chantier KG)** :
+  ingère un corpus (Markdown/text récursif) → `data/models/
+  knowledge_graph.json` versionné. Pré-traitement markdown (drop
+  code fences, headers, bullets, flatten links) avant extraction.
+  Garde-fous `--min-entities` / `--min-relations` pour échouer
+  proprement si le corpus est vidé ou l'extracteur cassé. Top-N
+  entités affichées pour validation à l'œil. CLI déterministe, exit
+  non nul sur seuil non atteint. Build local : **129 entités,
+  228 triplets, 71 KB, 0.0s** sur les 4 docs actuels. +11 tests.
+- **`.github/workflows/kg-build.yml`** : reconstruit le KG sur chaque
+  PR/push touchant corpus, extracteur, knowledge_graph ou le script.
+  Échec si en dessous des seuils. KG uploadé en artefact GitHub
+  (rétention 14 j) pour debug. Symétrique au workflow `brigid-train`.
 
 ### Modifié
 - `core/types.py` : ajout `QueryType.CODE`.
+- `.gitignore` : ajoute `data/models/*.json` (KG construit, option B
+  comme pour `.pt` Brigid) et `.venv-uv/` / `.venv-*/` (envs uv).
 - `tests/test_brigid.py` : mis à jour pour le nouveau contrat Brigid
   (phase 0 → 1 sans checkpoint, 2 chargé ; mode dégradé sans
   exception). Les vraies validations d'inférence sont dans
