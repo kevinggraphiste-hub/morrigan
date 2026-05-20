@@ -116,6 +116,19 @@ code seront livrés.
   directes). Persistance JSON versionnée (schema_version=1), lisible
   et diff-friendly. Pas encore d'extraction (PR 2), pas d'intégration
   Ogham (PR 4). +22 tests.
+- **`modules/ogham/extractor.py` (PR 2 du chantier KG)** : extraction
+  d'entités et relations depuis du texte français, pure-Python (zéro
+  dep NLP externe). `slugify` pour ids stables (sans accents, lowercase),
+  `split_sentences` basique sur `[.!?]` + maj. `extract_entities` détecte
+  Title-Cased multi-mots + acronymes (TCP, HTTP, ADN…), filtre les
+  stopwords usuels (déterminants, conjonctions). `extract_relations` :
+  5 patterns FR (`est un` → `is_a`, `possède` → `has`, `utilise` →
+  `uses`, `de` → `of`, co-occurrence par phrase → `co_occurs_with`
+  confidence 0.3). `populate_graph(kg, text, source)` ingère dans le
+  KG en respectant l'agrégation. **Sur le corpus actuel (4 docs) :
+  129 entités, 282 relations**, `compare("tcp", "udp")` capture déjà
+  les bonnes distinctions (`protocole` commun, `fiable`/`rapide`
+  distinctifs). +27 tests.
 
 ### Modifié
 - `core/types.py` : ajout `QueryType.CODE`.
