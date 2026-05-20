@@ -171,6 +171,20 @@ code seront livrés.
   `result["type"] == "structured_response"` est désormais respecté.
   Marker `@pytest.mark.xfail` retiré.
 
+### Boucle Phase 2
+- **`data/knowledge/code_*.md` — corpus dédié code (6 fichiers FR
+  curatés)** : Python (boucles, comprehensions, decorateurs, async),
+  JavaScript (let/const/arrow, promises, ESM vs CJS, closures), Bash
+  (variables, conditions, fonctions, pipes, trap), SQL (SELECT, JOIN,
+  CTE, index, EXPLAIN), HTML/CSS (sémantique, accessibilité, flexbox
+  vs grid, srcset), Git/Docker (workflow, stash, multi-stage, compose).
+  Chaque fichier ≥ 500 caractères, structure markdown propre, auto-
+  tagué `domain="code"` par `scripts/ingest_knowledge.py` (existant).
+  **Effet immédiat sur le KG** : 129 → **267 entités**, 228 → **430
+  triplets** distincts (+138 / +202). Nouvelles entités top : SELECT
+  (13 relations), JOIN (12). +19 tests garde-fous (nb fichiers,
+  domain, taille, structure markdown).
+
 ### Modifié
 - `core/types.py` : ajout `QueryType.CODE`.
 - `.gitignore` : ajoute `data/models/*.json` (KG construit, option B
