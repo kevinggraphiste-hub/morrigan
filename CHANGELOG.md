@@ -106,6 +106,16 @@ code seront livrés.
   quand faible/absent, fence markdown garde priorité, mapping complet).
   Fixture session-scopée : réutilise `data/models/brigid_cfc.pt` s'il
   existe, sinon entraîne un mini-modèle (20 époques) à la volée.
+- **`modules/ogham/knowledge_graph.py` (PR 1 du chantier KG)** :
+  fondations du knowledge graph Ogham. Modèle de données
+  (`Entity`, `Relation`) + `KnowledgeGraph` backé par `networkx.DiGraph`
+  (déjà dans les deps). API de requête : `add_entity`/`add_relation`
+  (avec agrégation des duplicates : count, max confidence, sources
+  cumulées), `entities`/`relations` (filtres optionnels), `neighbors`,
+  `facts_about`, `compare` (points communs, différences, relations
+  directes). Persistance JSON versionnée (schema_version=1), lisible
+  et diff-friendly. Pas encore d'extraction (PR 2), pas d'intégration
+  Ogham (PR 4). +22 tests.
 
 ### Modifié
 - `core/types.py` : ajout `QueryType.CODE`.
