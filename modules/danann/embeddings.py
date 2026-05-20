@@ -28,8 +28,12 @@ class EmbeddingEngine:
         """Charge le modèle d'embeddings en mémoire."""
         try:
             from sentence_transformers import SentenceTransformer
-            self.model = SentenceTransformer(self.model_name)
-            logger.info("Modèle '%s' chargé", self.model_name)
+            # Force CPU : cohérent avec la philo Morrigan ("tourne sur PC
+            # modeste"), et évite les CUDA errors quand torch détecte un
+            # GPU sans kernels compatibles (machines de dev hétérogènes).
+            # Même approche que modules/brigid/embedder.py.
+            self.model = SentenceTransformer(self.model_name, device="cpu")
+            logger.info("Modèle '%s' chargé (device=cpu)", self.model_name)
         except Exception as e:
             logger.error("Erreur chargement modèle: %s", e)
 
