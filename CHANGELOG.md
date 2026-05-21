@@ -18,6 +18,12 @@ Phase 2 livrée (reranker, Morrigan-Code 6 langages, Brigid CfC, knowledge
 graph, corpus code). **Phase 3 démarrée** — génération neuronale RWKV.
 
 ### Ajouté — Phase 3 (génération neuronale)
+- **Chargement auto du `.env`** (`core/env.py` → `load_env`) : plus
+  besoin de coller le token Telegram (ni les clés Supabase/HF) à chaque
+  lancement. Câblé dans la CLI et le bot Telegram. Dégradation
+  gracieuse (no-op si python-dotenv absent ou .env manquant) ;
+  `override=False` (l'env réel l'emporte sur le fichier). `.env`
+  gitignoré, `.env.example` documente les clés. +4 tests.
 - **Streaming Telegram** : le bot affiche la réponse au fil de l'eau
   via **édition progressive du message** (curseur `▌`), throttlée à
   ~1 édition/s (anti flood-control Telegram). Helper testable
