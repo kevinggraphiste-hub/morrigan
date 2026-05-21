@@ -64,7 +64,12 @@ class Scathach(MorriganModule):
     MIN_RELEVANCE_SCORE = 0.42
 
     # Nombre max de chunks passés en contexte au backend RWKV.
-    RWKV_CONTEXT_CHUNKS = 4
+    # Réduit de 4 à 2 après mesure : le prefill RWKV est ~linéaire en
+    # longueur de prompt, et le time-to-first-token chute de ~2.3s
+    # (4 chunks) à ~0.9s (1-2 chunks). Les top-2 chunks (les mieux
+    # classés par Danann) portent l'essentiel de la pertinence ;
+    # au-delà on dilue le contexte ET on rallonge le prefill.
+    RWKV_CONTEXT_CHUNKS = 2
 
     def __init__(
         self,
