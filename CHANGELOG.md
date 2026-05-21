@@ -18,6 +18,14 @@ Phase 2 livrée (reranker, Morrigan-Code 6 langages, Brigid CfC, knowledge
 graph, corpus code). **Phase 3 démarrée** — génération neuronale RWKV.
 
 ### Ajouté — Phase 3 (génération neuronale)
+- **Streaming Telegram** : le bot affiche la réponse au fil de l'eau
+  via **édition progressive du message** (curseur `▌`), throttlée à
+  ~1 édition/s (anti flood-control Telegram). Helper testable
+  `stream_collect(pieces, edit, interval, clock)` qui accumule et
+  édite, avale les erreurs d'édition ("message not modified", flood),
+  garantit une édition finale. Débordement >4000 car. géré (1er bloc
+  édité, reste envoyé en messages séparés). Scáthach passe en backend
+  `rwkv` côté bot. `cmd_help` mis à jour (RWKV + RAG strict). +8 tests.
 - **Optim prefill (contexte RWKV 4→2 chunks)** : mesure → le prefill
   RWKV est ~linéaire en longueur de prompt. Réduire le contexte de 4 à
   2 chunks (les mieux classés par Danann) fait chuter le
