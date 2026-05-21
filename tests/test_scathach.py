@@ -3,8 +3,6 @@
 import asyncio
 import sys
 
-import pytest
-
 sys.path.insert(0, ".")
 
 from core.types import ModuleInput
@@ -16,16 +14,13 @@ def test_scathach_health():
     assert asyncio.run(scathach.health_check()) is True
 
 
-@pytest.mark.xfail(
-    reason=(
-        "Pré-existant depuis le commit initial cdc66ce — la chaîne "
-        "conversationnelle ne renvoie pas le mot 'Morrigan' dans la réponse "
-        "template par défaut. À reprendre quand le template 'conversation.j2' "
-        "sera revu ou que le backend Scáthach évoluera (Phase 3, RWKV/Llama)."
-    ),
-    strict=False,
-)
 def test_scathach_template_generation():
+    """Ex-xfail depuis cdc66ce, réparé en Phase 3 PR B.
+
+    Le template not_found.j2 (rendu pour 'Bonjour' sans contexte) se
+    nomme désormais '[Morrigan]' — Morrigan s'identifie quand elle ne
+    sait pas. Backend template explicite (pas de RWKV ici).
+    """
     scathach = Scathach(backend="template")
     input_data = ModuleInput(query="Bonjour", context={"previous_results": {}})
     output = asyncio.run(scathach.process(input_data))
