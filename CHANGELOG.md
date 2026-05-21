@@ -19,6 +19,15 @@ graph, corpus code). Phase 3 livrée (génération RWKV + RAG strict +
 streaming). **Phase 4 démarrée** — corpus étendu et compression d'index.
 
 ### Ajouté — Phase 4 (corpus étendu et compression)
+- **Persistance disque de l'index compressé** (`Danann.save_index` /
+  `Danann.load_index`) : sauve `corpus.json` (chunks + metadata +
+  config) et `vectors.npz` (codes quantizés). Le chargement
+  reconstruit l'index **sans réembedder ni matérialiser de float32**
+  → gros corpus servi avec une RAM réduite. `scripts/
+  build_compressed_index.py` : ingère un répertoire → index compressé
+  sur disque (ingestion incrémentale fichier par fichier). Démo sur
+  le corpus actuel : 75 chunks, index int8 **28 KB vs 112 KB float32
+  (×4.0)**. +8 tests. GGUF/NPZ et dossiers `index*/` gitignorés.
 - **Compression branchée dans Danann** : option `compression` au
   constructeur — `none` (float32, défaut, inchangé), `int8` (codes
   par-vecteur, **~4× moins de RAM**), `binary` (Hamming coarse + int8
