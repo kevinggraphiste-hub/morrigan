@@ -151,14 +151,9 @@ class MorriganTelegramBot:
     async def cmd_stats(
         self, update: Update, context: ContextTypes.DEFAULT_TYPE
     ) -> None:
-        lines = ["Modules enregistres :"]
-        for name, module in self.dagda.modules.items():
-            caps = module.get_capabilities()
-            extra = ""
-            if "indexed_chunks" in caps:
-                extra = f" ({caps['indexed_chunks']} chunks)"
-            lines.append(f"- {name}{extra}")
-        await update.message.reply_text("\n".join(lines))
+        # Observabilité : compteurs cumulés + trace de la dernière requête
+        # (type, routage, Brigid + probas, generated_by, latence).
+        await update.message.reply_text(self.dagda.format_stats())
 
     async def handle_message(
         self, update: Update, context: ContextTypes.DEFAULT_TYPE
