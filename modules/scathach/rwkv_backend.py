@@ -20,7 +20,7 @@ from __future__ import annotations
 
 import logging
 from pathlib import Path
-from typing import List, Optional
+from typing import Iterator, List, Optional
 
 logger = logging.getLogger("morrigan.scathach.rwkv")
 
@@ -197,3 +197,52 @@ class RWKVBackend:
         """Raccourci : formate le prompt RWKV World (strict par défaut) puis génère."""
         prompt = self.format_prompt(query, context, strict=strict)
         return self.generate(prompt, **gen_kwargs)
+
+    # ─── Streaming ──────────────────────────────────────────────
+
+    def generate_stream(
+        self,
+        prompt: str,
+        max_tokens: int = DEFAULT_MAX_TOKENS,
+        temperature: float = DEFAULT_TEMPERATURE,
+        top_p: float = DEFAULT_TOP_P,
+        repeat_penalty: float = DEFAULT_REPEAT_PENALTY,
+        seed: Optional[int] = None,
+    ) -> Iterator[str]:
+        """Génère en streaming : yield les morceaux de texte au fil de l'eau.
+
+        Ne réduit pas le temps TOTAL, mais le 1er token arrive en <1s —
+        l'utilisateur voit la réponse se construire au lieu d'attendre.
+        C'est le levier "ressenti" sur CPU lent (cf. docs/benchmarks.md).
+
+        Lève RuntimeError si le backend n'est pas disponible.
+        """
+        if not self._try_load():
+            raise RuntimeError(f"RWKVBackend indisponible : {self._load_error}")
+
+        kwargs = {
+            "max_tokens": max_tokens,
+            "temperature": temperature,
+            "top_p": top_p,
+            "repeat_penalty": repeat_penalty,
+            "stop": _STOP_SEQUENCES,
+            "stream": True,
+        }
+        if seed is not None:
+            kwargs["seed"] = seed
+
+        for chunk in self._llm(prompt, **kwargs):  # type: ignore[misc]
+            piece = chunk["choices"][0]["text"]
+            if piece:
+                yield piece
+
+    def answer_stream(
+        self,
+        query: str,
+        context: Optional[List[str]] = None,
+        strict: bool = True,
+        **gen_kwargs,
+    ) -> Iterator[str]:
+        """Streaming version de answer() : formate puis yield les morceaux."""
+        prompt = self.format_prompt(query, context, strict=strict)
+        yield from self.generate_stream(prompt, **gen_kwargs)
