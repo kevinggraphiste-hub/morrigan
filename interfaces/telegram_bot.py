@@ -30,6 +30,7 @@ from telegram.ext import (
 )
 
 from core.dagda import AnDagda
+from core.env import load_env
 from modules.brigid.model import Brigid
 from modules.ogham.engine import Ogham
 from modules.danann.store import Danann
@@ -239,12 +240,17 @@ def main() -> None:
         datefmt="%H:%M:%S",
     )
 
+    # Charge .env si présent (token, clés…) — sinon env réel.
+    load_env()
+
     token = os.getenv("MORRIGAN_TELEGRAM_TOKEN", "").strip()
     if not token:
         print(
             "ERREUR : variable d'environnement MORRIGAN_TELEGRAM_TOKEN absente.\n"
-            "Definissez-la avant de lancer le bot :\n"
-            "    set MORRIGAN_TELEGRAM_TOKEN=123456:ABC-xxx"
+            "Définis-la dans un fichier .env (cf. .env.example) :\n"
+            "    MORRIGAN_TELEGRAM_TOKEN=123456:ABC-xxx\n"
+            "ou en ligne :\n"
+            "    MORRIGAN_TELEGRAM_TOKEN=123456:ABC-xxx python interfaces/telegram_bot.py"
         )
         sys.exit(1)
 

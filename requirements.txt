@@ -34,4 +34,5 @@ python-telegram-bot    # Interface Telegram
 
 # Configuration & Utilitaires
 pyyaml                 # Configuration YAML
+python-dotenv          # Chargement du .env (token Telegram, cles…)
 asyncio                # Orchestration asynchrone (stdlib)
