@@ -96,6 +96,9 @@ class Scathach(MorriganModule):
         self.templates_dir = Path(templates_dir)
         self._rwkv = rwkv_backend
         self.strict_rag = strict_rag
+        # Trace du dernier chemin de génération ("rwkv" / "template"),
+        # exposée pour l'observabilité (/stats), notamment en streaming.
+        self.last_generated_by: Optional[str] = None
 
         self.env = Environment(
             loader=FileSystemLoader(str(self.templates_dir)),
@@ -142,6 +145,7 @@ class Scathach(MorriganModule):
             if response is None:
                 response = self._render_from_modules(input.query, previous)
 
+        self.last_generated_by = generated_by
         return ModuleOutput(
             result=response,
             confidence=0.7 if generated_by == "rwkv" else 0.6,
@@ -222,6 +226,7 @@ class Scathach(MorriganModule):
         previous = input.context.get("previous_results", {})
 
         if "morrigan_code" in previous:
+            self.last_generated_by = "template"
             yield self._render_code_verification(input.query, previous)
             return
 
@@ -233,11 +238,13 @@ class Scathach(MorriganModule):
                         input.query, context=context or None, strict=self.strict_rag
                     ):
                         yield piece
+                    self.last_generated_by = "rwkv"
                     return
                 except Exception as e:  # pragma: no cover - env llama.cpp
                     logger.error("RWKV streaming échoué (%s) — fallback template", e)
 
         # Fallback template / refus : yieldé en un seul bloc.
+        self.last_generated_by = "template"
         yield self._render_from_modules(input.query, previous)
 
     def _ogham_context(self, previous: Dict[str, Any]) -> List[str]:

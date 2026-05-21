@@ -39,7 +39,76 @@ class AnDagda:
         self.modules: Dict[str, MorriganModule] = {}
         self.config: Dict[str, Any] = {}
         self.config_path = config_path
+        # Observabilité (/stats) : compteurs cumulés + trace de la
+        # dernière requête.
+        self.stats: Dict[str, Any] = {
+            "queries": 0,
+            "by_type": {},          # query_type -> count
+            "by_generated_by": {},  # rwkv|template -> count
+            "total_latency_s": 0.0,
+        }
+        self._last_brigid: Any = None       # IntentClassification ou None
+        self.last_routing: Optional[RoutingDecision] = None
+        self.last_latency_s: float = 0.0
+        self.last_generated_by: Optional[str] = None
         logger.info("An Dagda s'éveille...")
+
+    def _record_query(
+        self, routing: RoutingDecision, latency_s: float, generated_by: Optional[str]
+    ) -> None:
+        """Met à jour les compteurs + la trace de la dernière requête."""
+        self.stats["queries"] += 1
+        qt = routing.query_type.value
+        self.stats["by_type"][qt] = self.stats["by_type"].get(qt, 0) + 1
+        if generated_by:
+            self.stats["by_generated_by"][generated_by] = (
+                self.stats["by_generated_by"].get(generated_by, 0) + 1
+            )
+        self.stats["total_latency_s"] += latency_s
+        self.last_routing = routing
+        self.last_latency_s = latency_s
+        self.last_generated_by = generated_by
+
+    def format_stats(self) -> str:
+        """Rend les statistiques d'observabilité en texte (CLI / Telegram)."""
+        s = self.stats
+        n = s["queries"]
+        lines = ["📊 Morrigan — observabilité", ""]
+        lines.append(f"Modules enregistrés : {', '.join(self.modules) or '(aucun)'}")
+        lines.append(f"Requêtes traitées   : {n}")
+
+        if n:
+            avg = s["total_latency_s"] / n
+            lines.append(f"Latence moyenne     : {avg:.2f}s")
+            if s["by_type"]:
+                rep = ", ".join(f"{k}={v}" for k, v in sorted(s["by_type"].items()))
+                lines.append(f"Par type            : {rep}")
+            if s["by_generated_by"]:
+                rep = ", ".join(f"{k}={v}" for k, v in sorted(s["by_generated_by"].items()))
+                lines.append(f"Génération          : {rep}")
+
+        if self.last_routing is not None:
+            lines += ["", "Dernière requête :"]
+            lines.append(f"  type      : {self.last_routing.query_type.value}")
+            lines.append(f"  routage   : {self.last_routing.reasoning}")
+            lines.append(f"  modules   : {' → '.join(self.last_routing.modules)}")
+            if self.last_routing.domain_hint:
+                lines.append(f"  domaine   : {self.last_routing.domain_hint}")
+            if self.last_generated_by:
+                lines.append(f"  généré par: {self.last_generated_by}")
+            lines.append(f"  latence   : {self.last_latency_s:.2f}s")
+            if self._last_brigid is not None:
+                b = self._last_brigid
+                top = sorted(
+                    b.probabilities.items(), key=lambda kv: -kv[1]
+                )[:3]
+                top_str = ", ".join(f"{k} {p*100:.0f}%" for k, p in top)
+                lines.append(
+                    f"  brigid    : {b.label} ({b.confidence*100:.0f}%) "
+                    f"[top: {top_str}]"
+                )
+
+        return "\n".join(lines)
 
     async def initialize(self) -> None:
         """Charge la configuration et initialise les modules."""
@@ -149,6 +218,8 @@ class AnDagda:
             return None
 
         classif = brigid.classify_intent(query)
+        # Mémorise la classification pour /stats (même sous le seuil).
+        self._last_brigid = classif
         if classif is None:
             return None  # checkpoint indisponible
         if classif.confidence < self.BRIGID_CONFIDENCE_THRESHOLD:
@@ -185,6 +256,10 @@ class AnDagda:
         Le step 2 est désactivé silencieusement si Brigid est absent,
         non-trained, ou peu confiant — pas de régression côté routage.
         """
+        # Reset de la trace Brigid pour cette requête (renseignée par
+        # _route_via_brigid si Brigid est consultée).
+        self._last_brigid = None
+
         # 1. code en priorite absolue si fence markdown detectee.
         if self._CODE_FENCE_PATTERN.search(query):
             return RoutingDecision(
@@ -332,6 +407,11 @@ class AnDagda:
         elapsed = time.time() - start_time
         logger.info("Réponse générée en %.2fs", elapsed)
 
+        # 4. Observabilité (/stats)
+        sca = accumulated_result.get("scathach")
+        gen_by = sca.metadata.get("generated_by") if sca and not sca.errors else None
+        self._record_query(routing, elapsed, gen_by)
+
         return response
 
     async def process_stream(
@@ -398,7 +478,12 @@ class AnDagda:
             yield str(out.result) if out.success and out.result is not None else \
                 "[Morrigan] Aucun module n'a pu traiter cette requête."
 
-        logger.info("Réponse (stream) en %.2fs", time.time() - start_time)
+        elapsed = time.time() - start_time
+        logger.info("Réponse (stream) en %.2fs", elapsed)
+
+        # Observabilité (/stats) : generated_by exposé par Scáthach.
+        gen_by = getattr(last_mod, "last_generated_by", None) if last_mod else None
+        self._record_query(routing, elapsed, gen_by)
 
     def _assemble_response(
         self,
