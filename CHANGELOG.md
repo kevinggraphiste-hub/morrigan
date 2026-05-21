@@ -18,6 +18,14 @@ Phase 2 livrée (reranker, Morrigan-Code 6 langages, Brigid CfC, knowledge
 graph, corpus code). **Phase 3 démarrée** — génération neuronale RWKV.
 
 ### Ajouté — Phase 3 (génération neuronale)
+- **Optim prefill (contexte RWKV 4→2 chunks)** : mesure → le prefill
+  RWKV est ~linéaire en longueur de prompt. Réduire le contexte de 4 à
+  2 chunks (les mieux classés par Danann) fait chuter le
+  **time-to-first-token de ~2.4s à ~1.4s p50** sans perte d'ancrage
+  (toujours 100 % sur le benchmark). `n_threads` confirmé optimal à 4
+  (8 = -30 % à cause de l'hyperthreading). Le benchmark mesure et
+  rapporte désormais le **TTFT** (latence ressentie) en plus de la
+  latence totale ; `docs/benchmarks.md` régénéré.
 - **Streaming de génération (optimisation latence ressentie)** : la
   réponse RWKV s'affiche token par token au lieu d'attendre la
   génération complète. Diagnostic latence : sur la machine de dev
