@@ -18,6 +18,15 @@ Phase 2 livrée (reranker, Morrigan-Code 6 langages, Brigid CfC, knowledge
 graph, corpus code). **Phase 3 démarrée** — génération neuronale RWKV.
 
 ### Ajouté — Phase 3 (génération neuronale)
+- **Scáthach branché sur RWKV (PR B)** : `Scathach.process()` supporte
+  3 backends — `template` (défaut, Jinja2), `rwkv` (génération RWKV),
+  `auto` (alias rwkv). En mode rwkv, assemble le contexte depuis les
+  chunks Danann pertinents (RAG souple) et génère via `RWKVBackend`.
+  **Fallback gracieux** : si RWKV indisponible ou échoue, retombe sur
+  les templates — zéro régression. La vérification de code reste sur
+  template (sortie structurée). `metadata["generated_by"]` trace le
+  chemin réellement emprunté. Constructeur accepte un `rwkv_backend`
+  injectable (tests). +13 tests de wiring (backend factice, déterministe).
 - **`modules/scathach/rwkv_backend.py`** : backend de génération RWKV
   via llama.cpp (`llama-cpp-python`, wheel CPU prebuilt — pas de build
   cmake). Modèle RWKV-6 World 1.6B quantizé GGUF (défaut Q4_K ~993 Mo).
@@ -194,6 +203,14 @@ graph, corpus code). **Phase 3 démarrée** — génération neuronale RWKV.
   commit initial cdc66ce, passe enfin**. Le contrat stable
   `result["type"] == "structured_response"` est désormais respecté.
   Marker `@pytest.mark.xfail` retiré.
+- **`tests/test_scathach.py::test_scathach_template_generation`** :
+  **dernier xfailed du repo, résolu en PR B Phase 3**. `not_found.j2`
+  préfixe désormais `[Morrigan]` (Morrigan s'identifie quand elle ne
+  sait pas). **La suite n'a plus aucun xfailed** (208 passed).
+- **Régression PR #13 (KG) corrigée** : `Scathach._extract_structure_type`
+  lisait `ogham_result["type"]`, devenu `"structured_response"` depuis
+  l'intégration KG → Scáthach tombait toujours sur `factual.j2`. Lit
+  désormais `structure_type` (avec rétrocompat sur l'ancien `type`).
 
 ### Boucle Phase 2
 - **`data/knowledge/code_*.md` — corpus dédié code (6 fichiers FR
