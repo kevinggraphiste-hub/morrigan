@@ -18,6 +18,23 @@ Phase 2 livrée (reranker, Morrigan-Code 6 langages, Brigid CfC, knowledge
 graph, corpus code). **Phase 3 démarrée** — génération neuronale RWKV.
 
 ### Ajouté — Phase 3 (génération neuronale)
+- **Streaming de génération (optimisation latence ressentie)** : la
+  réponse RWKV s'affiche token par token au lieu d'attendre la
+  génération complète. Diagnostic latence : sur la machine de dev
+  (i5-10210U, RAM saturée — 2.6 Go de swap au repos), la lenteur vient
+  surtout du matériel (RAM starvation + CPU U-series), pas du code ;
+  ~10-12 tok/s est normal pour un 1.6B Q4 sur ce chip. Le streaming
+  attaque le *ressenti* : **1er token en ~2.4s** au lieu de ~20s
+  d'écran vide.
+  - `RWKVBackend.generate_stream` / `answer_stream` (llama.cpp stream=True).
+  - `Scathach.stream()` (async generator) : stream RWKV si contexte,
+    sinon yield template/refus en un bloc. Helper `_rwkv_context`
+    partagé avec `_generate_rwkv`.
+  - `AnDagda.process_stream()` : exécute les modules amont normalement
+    puis streame le dernier (Scáthach).
+  - CLI (`interfaces/cli.py`) : affichage live token par token, et
+    Scáthach passe en backend `rwkv` (fallback template si modèle absent).
+  - +11 tests (backends factices).
 - **Benchmarks de génération (PR D)** : `scripts/benchmark.py` complet
   (remplace le placeholder) + rapport `docs/benchmarks.md` avec chiffres
   réels mesurés sur la machine. Mesure : latence p50/p95/moyenne/max,
