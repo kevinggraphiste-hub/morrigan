@@ -12,6 +12,7 @@ import sys
 sys.path.insert(0, ".")
 
 from core.dagda import AnDagda
+from core.env import load_env
 from modules.brigid.model import Brigid
 from modules.ogham.engine import Ogham
 from modules.danann.store import Danann
@@ -31,6 +32,7 @@ def setup_logging() -> None:
 async def main() -> None:
     """Boucle principale CLI."""
     setup_logging()
+    load_env()  # charge .env si présent (HF_TOKEN, Supabase…)
     logger = logging.getLogger("morrigan.cli")
 
     print("=" * 60)
