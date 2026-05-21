@@ -18,6 +18,14 @@ Phase 2 livrée (reranker, Morrigan-Code 6 langages, Brigid CfC, knowledge
 graph, corpus code). **Phase 3 démarrée** — génération neuronale RWKV.
 
 ### Ajouté — Phase 3 (génération neuronale)
+- **Observabilité `/stats`** : An Dagda accumule des compteurs (nb
+  requêtes, répartition par `query_type`, par `generated_by` rwkv/
+  template, latence moyenne) et une **trace de la dernière requête**
+  (type, raison de routage, modules activés, domaine, `generated_by`,
+  latence, **classification Brigid + top-3 probas**). `format_stats()`
+  rend tout ça ; commande `/stats` (ou `stats`) en CLI et `/stats`
+  Telegram. Scáthach expose `last_generated_by` pour tracer le chemin
+  même en streaming. +6 tests. Idéal pour debug + démo.
 - **Chargement auto du `.env`** (`core/env.py` → `load_env`) : plus
   besoin de coller le token Telegram (ni les clés Supabase/HF) à chaque
   lancement. Câblé dans la CLI et le bot Telegram. Dégradation
