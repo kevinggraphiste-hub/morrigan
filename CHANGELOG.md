@@ -18,6 +18,23 @@ Phase 2 livrée (reranker, Morrigan-Code 6 langages, Brigid CfC, knowledge
 graph, corpus code). **Phase 3 démarrée** — génération neuronale RWKV.
 
 ### Ajouté — Phase 3 (génération neuronale)
+- **RAG strict (PR C) — le « 0 hallucination » de Morrigan** :
+  `Scathach(strict_rag=True)` (défaut). En génération RWKV :
+  - **Refus déterministe sans contexte** : si aucun chunk Danann
+    pertinent ni fait Ogham n'est disponible, Scáthach **n'appelle pas
+    le LLM** et renvoie un « [Morrigan] Je n'ai pas d'information… »
+    via template. Pas d'invention possible.
+  - **Génération ancrée avec contexte** : le prompt instruit RWKV de
+    répondre UNIQUEMENT à partir du contexte fourni et de dire « Je ne
+    sais pas » sinon (`RWKVBackend.format_prompt(strict=True)`).
+  - **Contexte enrichi par le KG** : `_ogham_context()` convertit les
+    `compare` / `facts` d'Ogham (PR #13) en lignes FR (prédicats
+    humanisés : is_a → « est », uses → « utilise »…) et les ajoute aux
+    chunks Danann dans le contexte RAG.
+  - `strict_rag=False` pour un mode génération libre (sans grounding).
+  - Smoke validé : « recette du cassoulet ? » sans corpus → refus sans
+    appel LLM ; « TCP est-il fiable ? » + chunk → réponse ancrée sur
+    le chunk. +14 tests.
 - **Scáthach branché sur RWKV (PR B)** : `Scathach.process()` supporte
   3 backends — `template` (défaut, Jinja2), `rwkv` (génération RWKV),
   `auto` (alias rwkv). En mode rwkv, assemble le contexte depuis les
