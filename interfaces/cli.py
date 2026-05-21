@@ -66,6 +66,9 @@ async def main() -> None:
             continue
         if user_input.lower() in ("quit", "exit", "q"):
             break
+        if user_input.lower() in ("/stats", "stats"):
+            print(f"\n{dagda.format_stats()}\n")
+            continue
 
         # Streaming : la réponse s'affiche au fil de l'eau (le 1er token
         # arrive vite, ce qui masque la latence d'un 1.6B sur CPU).
