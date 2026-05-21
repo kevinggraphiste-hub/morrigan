@@ -29,6 +29,7 @@ data/logs/*.log
 # Artefacts produits par les scripts (option B : on commit le code +
 # le corpus source, pas les sorties dérivées qui sont régénérables).
 data/models/*.json
+data/models/*.gguf
 
 # Env supplémentaires
 .venv-uv/
