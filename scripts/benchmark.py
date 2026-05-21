@@ -110,6 +110,7 @@ class CaseResult:
     latency_s: float
     response_chars: int
     grounded: Optional[bool]  # None si non applicable (refus)
+    ttft_s: Optional[float] = None  # time-to-first-token (None si refus)
 
 
 def _danann_output(chunks: List[str]) -> ModuleOutput:
@@ -141,6 +142,18 @@ def _is_grounded(response: str, chunks: List[str]) -> bool:
     return bool(_sig_words(response) & ctx_words)
 
 
+def _measure_ttft(scathach: Scathach, inp: ModuleInput) -> Optional[float]:
+    """Time-to-first-token via le chemin streaming (None si rien yieldé)."""
+    async def consume() -> Optional[float]:
+        t0 = time.time()
+        async for piece in scathach.stream(inp):
+            if piece.strip():
+                return time.time() - t0
+        return None
+
+    return asyncio.run(consume())
+
+
 def run_case(scathach: Scathach, case: BenchCase) -> CaseResult:
     previous: Dict[str, Any] = {}
     if case.chunks:
@@ -148,6 +161,7 @@ def run_case(scathach: Scathach, case: BenchCase) -> CaseResult:
 
     inp = ModuleInput(query=case.query, context={"previous_results": previous})
 
+    # 1. process() : métriques de référence (total, generated_by, ancrage).
     t0 = time.time()
     out = asyncio.run(scathach.process(inp))
     latency = time.time() - t0
@@ -157,6 +171,10 @@ def run_case(scathach: Scathach, case: BenchCase) -> CaseResult:
     refused = generated_by == "template"
     grounded = None if refused else _is_grounded(response, case.chunks)
 
+    # 2. TTFT via streaming, uniquement pour les cas réellement générés
+    #    (le refus est instantané et déterministe).
+    ttft = None if refused else _measure_ttft(scathach, inp)
+
     return CaseResult(
         query=case.query,
         expect_refusal=case.expect_refusal,
@@ -165,6 +183,7 @@ def run_case(scathach: Scathach, case: BenchCase) -> CaseResult:
         latency_s=latency,
         response_chars=len(response),
         grounded=grounded,
+        ttft_s=ttft,
     )
 
 
@@ -187,6 +206,7 @@ def summarize(results: List[CaseResult]) -> Dict[str, Any]:
     refusals_correct = sum(1 for r in out_of_corpus if r.refused)
     grounded_cases = [r for r in gen if r.grounded is not None]
     grounded_ok = sum(1 for r in grounded_cases if r.grounded)
+    ttfts = [r.ttft_s for r in gen if r.ttft_s is not None]
 
     return {
         "n_cases": len(results),
@@ -194,10 +214,13 @@ def summarize(results: List[CaseResult]) -> Dict[str, Any]:
         "n_out_of_corpus": len(out_of_corpus),
         "refusal_rate": (refusals_correct / len(out_of_corpus)) if out_of_corpus else 1.0,
         "grounding_rate": (grounded_ok / len(grounded_cases)) if grounded_cases else 0.0,
+        "ttft_p50": statistics.median(ttfts) if ttfts else 0.0,
+        "ttft_p95": _percentile(ttfts, 95),
         "latency_p50": statistics.median(gen_latencies) if gen_latencies else 0.0,
         "latency_p95": _percentile(gen_latencies, 95),
         "latency_mean": statistics.fmean(gen_latencies) if gen_latencies else 0.0,
         "latency_max": max(gen_latencies) if gen_latencies else 0.0,
+        "ttft_under_1s": bool(ttfts) and all(t < 1.0 for t in ttfts),
         "target_under_1s": bool(gen_latencies) and all(l < 1.0 for l in gen_latencies),
     }
 
@@ -220,23 +243,26 @@ def format_report(
         f"| Cas testés | {summary['n_cases']} ({summary['n_generated']} générés, {summary['n_out_of_corpus']} hors-corpus) |",
         f"| **Taux de refus (hors-corpus)** | **{summary['refusal_rate']*100:.0f}%** (cible 100% — 0 hallucination) |",
         f"| **Taux d'ancrage (générés)** | **{summary['grounding_rate']*100:.0f}%** |",
-        f"| Latence génération p50 | {summary['latency_p50']:.2f} s |",
-        f"| Latence génération p95 | {summary['latency_p95']:.2f} s |",
+        f"| **Time-to-first-token p50 (streaming)** | **{summary['ttft_p50']:.2f} s** {'✅ < 1 s' if summary['ttft_under_1s'] else ''} |",
+        f"| Time-to-first-token p95 (streaming) | {summary['ttft_p95']:.2f} s |",
+        f"| Latence génération complète p50 | {summary['latency_p50']:.2f} s |",
+        f"| Latence génération complète p95 | {summary['latency_p95']:.2f} s |",
         f"| Latence génération moyenne | {summary['latency_mean']:.2f} s |",
         f"| Latence génération max | {summary['latency_max']:.2f} s |",
-        f"| Cible README < 1 s | {'✅ atteinte' if summary['target_under_1s'] else '❌ non atteinte (voir note)'} |",
+        f"| Cible README < 1 s (réponse complète) | {'✅ atteinte' if summary['target_under_1s'] else '❌ non atteinte (voir note)'} |",
         "",
         "## Détail par cas",
         "",
-        "| Query | Type | generated_by | Latence | Ancré |",
-        "|---|---|---|---|---|",
+        "| Query | Type | generated_by | TTFT | Total | Ancré |",
+        "|---|---|---|---|---|---|",
     ]
     for r in results:
         typ = "hors-corpus" if r.expect_refusal else "in-corpus"
         grounded = "—" if r.grounded is None else ("oui" if r.grounded else "non")
-        q = r.query if len(r.query) <= 45 else r.query[:42] + "…"
+        ttft = "—" if r.ttft_s is None else f"{r.ttft_s:.2f}s"
+        q = r.query if len(r.query) <= 42 else r.query[:39] + "…"
         lines.append(
-            f"| {q} | {typ} | {r.generated_by} | {r.latency_s:.2f}s | {grounded} |"
+            f"| {q} | {typ} | {r.generated_by} | {ttft} | {r.latency_s:.2f}s | {grounded} |"
         )
 
     lines += [
@@ -246,12 +272,15 @@ def format_report(
         "- Le **refus hors-corpus est déterministe** : sans contexte fiable, "
         "Scáthach n'appelle pas le LLM (latence quasi nulle) et renvoie un "
         "« je ne sais pas ». C'est le cœur du « 0 hallucination ».",
-        "- La **cible < 1 s n'est pas atteinte** pour une génération complète "
-        "sur ce CPU contraint : un RWKV-6 1.6B Q4_K génère à ~10-12 tok/s, "
-        "soit plusieurs secondes pour une réponse de quelques phrases. "
-        "Pistes : quantization plus agressive (Q3_K), modèle plus petit "
-        "(0.4B), streaming (afficher au fil de l'eau), ou réponses plus "
-        "courtes. À traiter en optimisation (Phase 4).",
+        "- **Streaming + contexte réduit (2 chunks)** : le time-to-first-token "
+        "est le levier de latence *ressentie*. En affichant la réponse au fil "
+        "de l'eau, l'utilisateur voit le 1er mot bien avant la fin de la "
+        "génération.",
+        "- La **cible < 1 s sur la réponse COMPLÈTE n'est pas atteinte** sur "
+        "ce CPU contraint : un RWKV-6 1.6B Q4_K génère à ~10-13 tok/s, soit "
+        "plusieurs secondes pour quelques phrases. Le plafond est matériel "
+        "(RAM saturée + CPU U-series). Pistes restantes : meilleur matériel, "
+        "modèle plus petit (écarté : qualité), ou réponses plus courtes.",
         "- L'**ancrage** est mesuré par une heuristique de recouvrement "
         "lexical réponse↔contexte — indicatif, pas une preuve d'absence "
         "d'hallucination.",
@@ -305,7 +334,8 @@ def main(argv: Optional[List[str]] = None) -> int:
     print(
         f"Refus hors-corpus : {summary['refusal_rate']*100:.0f}%  |  "
         f"Ancrage : {summary['grounding_rate']*100:.0f}%  |  "
-        f"Latence p50 : {summary['latency_p50']:.2f}s  p95 : {summary['latency_p95']:.2f}s"
+        f"TTFT p50 : {summary['ttft_p50']:.2f}s  |  "
+        f"Total p50 : {summary['latency_p50']:.2f}s"
     )
 
     if args.output:

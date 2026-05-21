@@ -31,6 +31,10 @@ class FakeRWKV:
             return f"D'après le contexte : {context[0]}"
         return "réponse libre"
 
+    def answer_stream(self, query, context=None, strict=True, **kw):
+        # run_case mesure le TTFT via stream() → answer_stream requis.
+        yield self.answer(query, context=context, strict=strict)
+
 
 # ─── _is_grounded ──────────────────────────────────────────────────
 
@@ -142,3 +146,13 @@ def test_run_case_generates_with_context():
     assert r.generated_by == "rwkv"
     assert r.grounded is True  # FakeRWKV reprend le contexte
     assert r.latency_s >= 0.0
+    assert r.ttft_s is not None  # TTFT mesuré via streaming
+    assert r.ttft_s >= 0.0
+
+
+def test_run_case_refusal_has_no_ttft():
+    sc = Scathach(backend="rwkv", rwkv_backend=FakeRWKV(), strict_rag=True)
+    case = BenchCase(query="hors corpus ?", chunks=[], expect_refusal=True)
+    r = run_case(sc, case)
+    assert r.refused is True
+    assert r.ttft_s is None  # pas de génération → pas de TTFT
