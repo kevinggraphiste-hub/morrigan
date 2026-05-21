@@ -11,7 +11,7 @@ import logging
 import re
 import time
 import unicodedata
-from typing import Any, Dict, List, Optional
+from typing import Any, AsyncIterator, Dict, List, Optional
 
 import yaml
 
@@ -333,6 +333,72 @@ class AnDagda:
         logger.info("Réponse générée en %.2fs", elapsed)
 
         return response
+
+    async def process_stream(
+        self, user_input: str, session_id: str = "default"
+    ) -> AsyncIterator[str]:
+        """Variante streaming de process().
+
+        Exécute normalement tous les modules sauf le dernier de la
+        chaîne, puis **streame** la sortie du dernier (Scáthach) si
+        celui-ci expose une méthode `stream()`. Sinon, fallback : on
+        process() le dernier et on yield sa réponse en un bloc.
+
+        Permet à la CLI/Telegram d'afficher la réponse au fil de l'eau
+        (le 1er token arrive en <1s même si le total prend plusieurs
+        secondes sur CPU).
+        """
+        start_time = time.time()
+        routing = self.classify_query(user_input)
+        logger.info(
+            "Routage (stream): %s → %s (%s)",
+            routing.query_type.value, routing.modules, routing.reasoning,
+        )
+
+        parameters: Dict[str, Any] = {}
+        if routing.domain_hint:
+            parameters["domain"] = routing.domain_hint
+
+        module_input = ModuleInput(
+            query=user_input,
+            context={"session_id": session_id, "routing": routing},
+            parameters=parameters,
+        )
+
+        if not routing.modules:
+            yield "[Morrigan] Aucun module à activer."
+            return
+
+        *pre_modules, last_name = routing.modules
+        accumulated: Dict[str, Any] = {}
+
+        # 1. Modules amont (tous sauf le dernier) — exécution normale.
+        for name in pre_modules:
+            if name not in self.modules:
+                logger.warning("Module '%s' non disponible, skip", name)
+                continue
+            module_input.context["previous_results"] = accumulated
+            try:
+                accumulated[name] = await self.modules[name].process(module_input)
+            except Exception as e:
+                logger.error("Erreur module '%s': %s", name, e)
+                accumulated[name] = ModuleOutput(result=None, errors=[str(e)])
+
+        # 2. Dernier module : streamé s'il le supporte.
+        module_input.context["previous_results"] = accumulated
+        last_mod = self.modules.get(last_name)
+
+        if last_mod is None:
+            yield "[Morrigan] Aucun module n'a pu traiter cette requête."
+        elif hasattr(last_mod, "stream"):
+            async for piece in last_mod.stream(module_input):  # type: ignore[attr-defined]
+                yield piece
+        else:
+            out = await last_mod.process(module_input)
+            yield str(out.result) if out.success and out.result is not None else \
+                "[Morrigan] Aucun module n'a pu traiter cette requête."
+
+        logger.info("Réponse (stream) en %.2fs", time.time() - start_time)
 
     def _assemble_response(
         self,

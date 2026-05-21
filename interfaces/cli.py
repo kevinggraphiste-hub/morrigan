@@ -35,18 +35,19 @@ async def main() -> None:
 
     print("=" * 60)
     print("  MORRIGAN — Architecture IA Modulaire v0.1")
-    print("  Phase 0 — Squelette Fonctionnel")
+    print("  Phases 1-3 — génération neuronale RWKV (streaming)")
     print("=" * 60)
     print()
 
     # Initialiser l'orchestrateur
     dagda = AnDagda()
 
-    # Enregistrer les modules
+    # Enregistrer les modules. Scáthach en backend RWKV pour la vraie
+    # génération + streaming (fallback template si modèle absent).
     dagda.register_module("brigid", Brigid())
     dagda.register_module("ogham", Ogham())
     dagda.register_module("danann", Danann())
-    dagda.register_module("scathach", Scathach())
+    dagda.register_module("scathach", Scathach(backend="rwkv"))
     dagda.register_module("cauldron", Cauldron())
 
     await dagda.initialize()
@@ -64,8 +65,12 @@ async def main() -> None:
         if user_input.lower() in ("quit", "exit", "q"):
             break
 
-        response = await dagda.process(user_input)
-        print(f"\nMorrigan > {response}\n")
+        # Streaming : la réponse s'affiche au fil de l'eau (le 1er token
+        # arrive vite, ce qui masque la latence d'un 1.6B sur CPU).
+        print("\nMorrigan > ", end="", flush=True)
+        async for piece in dagda.process_stream(user_input):
+            print(piece, end="", flush=True)
+        print("\n")
 
     print("\nMorrigan se repose. À bientôt.")
 
