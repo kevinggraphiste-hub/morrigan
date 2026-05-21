@@ -10,7 +10,7 @@ import logging
 import re
 import unicodedata
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Set
+from typing import Any, AsyncIterator, Dict, List, Optional, Set
 
 from jinja2 import Environment, FileSystemLoader, select_autoescape
 
@@ -158,42 +158,82 @@ class Scathach(MorriganModule):
     # Plafond de faits Ogham injectés (évite de noyer le prompt).
     OGHAM_CONTEXT_FACTS = 8
 
-    def _generate_rwkv(
+    def _rwkv_context(
         self, query: str, previous: Dict[str, Any]
-    ) -> Optional[str]:
-        """Génère via RWKV avec RAG (chunks Danann + faits Ogham).
+    ) -> Optional[List[str]]:
+        """Décide si on génère via RWKV et avec quel contexte.
 
-        Renvoie None si :
-          - le backend RWKV est indisponible ou échoue (→ fallback template)
-          - mode `strict_rag` et AUCUN contexte disponible (→ fallback
-            template = "je ne sais pas" déterministe, 0 hallucination)
+        Renvoie :
+          - None  → fallback template (backend indispo, OU mode strict
+            sans aucun contexte fiable = "je ne sais pas" déterministe)
+          - list  → générer via RWKV avec ce contexte (peut être [] en
+            mode non-strict = génération libre)
+
+        Partagé par _generate_rwkv (process) et stream().
         """
         backend = self._get_rwkv()
         if backend is None or not backend.is_available():
             return None
 
-        # Contexte RAG : chunks Danann pertinents + faits structurés Ogham.
         chunks = self._relevant_chunks(query, previous)
         context = [c.get("text", "") for c in chunks[: self.RWKV_CONTEXT_CHUNKS]]
         context += self._ogham_context(previous)
         context = [c for c in context if c.strip()]
 
-        # RAG strict : pas de contexte → on NE génère PAS. L'appelant
-        # retombe sur not_found.j2 ("[Morrigan] Je n'ai pas d'information…").
         if self.strict_rag and not context:
             logger.info(
-                "RAG strict : aucun contexte fiable → pas de génération RWKV "
-                "(réponse 'je ne sais pas' via template)"
+                "RAG strict : aucun contexte fiable → fallback template "
+                "(réponse 'je ne sais pas')"
             )
             return None
+        return context
 
+    def _generate_rwkv(
+        self, query: str, previous: Dict[str, Any]
+    ) -> Optional[str]:
+        """Génère via RWKV avec RAG. None → fallback template."""
+        context = self._rwkv_context(query, previous)
+        if context is None:
+            return None
         try:
-            return backend.answer(
+            return self._get_rwkv().answer(
                 query, context=context or None, strict=self.strict_rag
             )
         except Exception as e:  # pragma: no cover - dépend de l'env llama.cpp
             logger.error("RWKV génération échouée (%s) — fallback template", e)
             return None
+
+    async def stream(self, input: ModuleInput) -> AsyncIterator[str]:
+        """Génère en streaming : yield les morceaux de réponse au fil de l'eau.
+
+        Même logique de décision que process() :
+          - morrigan_code → template (yieldé en un bloc)
+          - RWKV dispo + contexte (ou non-strict) → stream des tokens
+          - sinon → template / refus (yieldé en un bloc)
+
+        Pensé pour la CLI/Telegram : la réponse s'affiche en direct,
+        ce qui masque la latence d'un 1.6B sur CPU (cf. benchmarks).
+        """
+        previous = input.context.get("previous_results", {})
+
+        if "morrigan_code" in previous:
+            yield self._render_code_verification(input.query, previous)
+            return
+
+        if self.backend in ("rwkv", "auto"):
+            context = self._rwkv_context(input.query, previous)
+            if context is not None:
+                try:
+                    for piece in self._get_rwkv().answer_stream(
+                        input.query, context=context or None, strict=self.strict_rag
+                    ):
+                        yield piece
+                    return
+                except Exception as e:  # pragma: no cover - env llama.cpp
+                    logger.error("RWKV streaming échoué (%s) — fallback template", e)
+
+        # Fallback template / refus : yieldé en un seul bloc.
+        yield self._render_from_modules(input.query, previous)
 
     def _ogham_context(self, previous: Dict[str, Any]) -> List[str]:
         """Convertit les faits du KG Ogham (compare/facts) en lignes de contexte FR."""
