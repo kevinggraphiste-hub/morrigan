@@ -14,9 +14,33 @@ GitHub sortira sans notes (cf. mémoire `gungnir-release-changelog-gotcha`).
 
 ## [Non publié]
 
-Phase 2 — Indexation multi-niveaux et spécialisation (en cours). Sera
-publiée sous `0.2.0` quand Brigid entraînée + knowledge graph + corpus
-code seront livrés.
+Phase 2 livrée (reranker, Morrigan-Code 6 langages, Brigid CfC, knowledge
+graph, corpus code). **Phase 3 démarrée** — génération neuronale RWKV.
+
+### Ajouté — Phase 3 (génération neuronale)
+- **`modules/scathach/rwkv_backend.py`** : backend de génération RWKV
+  via llama.cpp (`llama-cpp-python`, wheel CPU prebuilt — pas de build
+  cmake). Modèle RWKV-6 World 1.6B quantizé GGUF (défaut Q4_K ~993 Mo).
+  `RWKVBackend` : lazy load, `is_available()` pour le fallback,
+  `format_prompt` (format RWKV World `User:/Assistant:`, injection de
+  contexte RAG optionnelle), `generate` / `answer` avec defaults validés
+  (`repeat_penalty=1.3` indispensable, sinon RWKV boucle). Dégradation
+  gracieuse : sans lib ni modèle, le backend est indisponible et
+  Scáthach (PR B) retombera sur ses templates Jinja2.
+  **Validé en local** : génère du français cohérent à ~10-12 tok/s sur
+  CPU contraint. Q2_K testé mais trop agressif (sortie dégénérée) → Q4_K
+  est le plancher de qualité.
+- **`scripts/fetch_rwkv_model.py`** : télécharge le GGUF depuis HF
+  (`--quant` configurable). Le `.gguf` est gitignoré (option B,
+  artefact reproductible).
+- **`tests/test_rwkv_backend.py`** : 11 tests (format prompt, config,
+  dégradation gracieuse modèle absent ; + 2 smoke de génération réelle
+  gated par présence du GGUF + `importorskip llama_cpp`).
+
+### Modifié
+- `requirements.txt` : ajoute `llama-cpp-python` via l'index de wheels
+  CPU prebuilt abetlen (`--extra-index-url`).
+- `.gitignore` : ignore `data/models/*.gguf`.
 
 ### Ajouté
 - **Reranker cross-encoder** (`modules/danann/reranker.py`) sur les
