@@ -18,6 +18,16 @@ Phase 2 livrée (reranker, Morrigan-Code 6 langages, Brigid CfC, knowledge
 graph, corpus code). **Phase 3 démarrée** — génération neuronale RWKV.
 
 ### Ajouté — Phase 3 (génération neuronale)
+- **Benchmarks de génération (PR D)** : `scripts/benchmark.py` complet
+  (remplace le placeholder) + rapport `docs/benchmarks.md` avec chiffres
+  réels mesurés sur la machine. Mesure : latence p50/p95/moyenne/max,
+  **taux de refus hors-corpus** (cible 100% — 0 hallucination), **taux
+  d'ancrage** (recouvrement lexical réponse↔contexte), comparaison à la
+  cible README < 1 s. Premiers résultats (RWKV-6 1.6B Q4_K, CPU
+  contraint) : **refus 100%, ancrage 100%, latence p50 ~12.7 s** —
+  la cible < 1 s n'est PAS atteinte (documenté honnêtement, pistes
+  d'optimisation listées : quant plus agressive, modèle plus petit,
+  streaming). +10 tests de harnais (backend factice).
 - **RAG strict (PR C) — le « 0 hallucination » de Morrigan** :
   `Scathach(strict_rag=True)` (défaut). En génération RWKV :
   - **Refus déterministe sans contexte** : si aucun chunk Danann
