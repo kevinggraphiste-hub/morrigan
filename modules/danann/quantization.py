@@ -56,23 +56,51 @@ def _topk(scores: np.ndarray, k: int) -> np.ndarray:
 
 @dataclass
 class Int8Index:
-    """Index quantizé int8 (scalaire symétrique global)."""
+    """Index quantizé int8.
 
-    codes: np.ndarray   # (N, D) int8
-    scale: float        # facteur de déquantization
+    `scale` est :
+      - un float → quantization scalaire **globale** (un seul facteur),
+      - un np.ndarray (N,) → quantization **par-vecteur** (un facteur
+        par ligne). Le mode par-vecteur est *incrémental* (chaque lot
+        se quantize indépendamment) et ne nécessite jamais de garder
+        les float32 → idéal pour Danann en mode compressé.
+    """
+
+    codes: np.ndarray              # (N, D) int8
+    scale: "float | np.ndarray"    # scalaire (global) ou (N,) (par-vecteur)
 
     @classmethod
-    def build(cls, embeddings: np.ndarray) -> "Int8Index":
+    def build(cls, embeddings: np.ndarray, per_vector: bool = False) -> "Int8Index":
         arr = _as_2d_f32(embeddings)
+        if per_vector:
+            max_abs = np.max(np.abs(arr), axis=1)  # (N,)
+            max_abs[max_abs == 0] = 1.0
+            scale = (max_abs / 127.0).astype(np.float32)
+            codes = np.round(arr / scale[:, None]).clip(-127, 127).astype(np.int8)
+            return cls(codes=codes, scale=scale)
         max_abs = float(np.max(np.abs(arr))) or 1.0
-        scale = max_abs / 127.0
-        codes = np.round(arr / scale).clip(-127, 127).astype(np.int8)
-        return cls(codes=codes, scale=scale)
+        scale_f = max_abs / 127.0
+        codes = np.round(arr / scale_f).clip(-127, 127).astype(np.int8)
+        return cls(codes=codes, scale=scale_f)
+
+    @property
+    def per_vector(self) -> bool:
+        return isinstance(self.scale, np.ndarray)
+
+    def extend(self, embeddings: np.ndarray) -> None:
+        """Ajoute un lot (mode par-vecteur uniquement)."""
+        if not self.per_vector:
+            raise ValueError("extend() requiert un index par-vecteur")
+        new = self.build(embeddings, per_vector=True)
+        self.codes = np.vstack([self.codes, new.codes])
+        self.scale = np.concatenate([self.scale, new.scale])  # type: ignore[arg-type]
 
     def __len__(self) -> int:
         return self.codes.shape[0]
 
     def dequantize(self) -> np.ndarray:
+        if self.per_vector:
+            return self.codes.astype(np.float32) * self.scale[:, None]  # type: ignore[index]
         return self.codes.astype(np.float32) * self.scale
 
     def search(self, query: np.ndarray, k: int) -> Tuple[np.ndarray, np.ndarray]:
@@ -81,13 +109,15 @@ class Int8Index:
         Renvoie (indices, scores). `query` est un vecteur float (D,).
         """
         q = np.asarray(query, dtype=np.float32).ravel()
-        # codes (N,D) @ q (D,) puis * scale → produit scalaire approx.
+        # dot(codes[i]*scale[i], q) = scale[i] * dot(codes[i], q).
+        # scale scalaire OU (N,) → broadcast correct sur scores (N,).
         scores = (self.codes.astype(np.float32) @ q) * self.scale
         idx = _topk(scores, k)
         return idx, scores[idx]
 
     def memory_bytes(self) -> int:
-        return int(self.codes.nbytes)
+        scale_bytes = self.scale.nbytes if isinstance(self.scale, np.ndarray) else 8
+        return int(self.codes.nbytes + scale_bytes)
 
 
 # ─── Binary (signe, 32×) ───────────────────────────────────────────
@@ -106,6 +136,13 @@ class BinaryIndex:
         bools = arr > 0.0
         packed = np.packbits(bools, axis=1)
         return cls(bits=packed, dim=arr.shape[1])
+
+    def extend(self, embeddings: np.ndarray) -> None:
+        """Ajoute un lot (incrémental)."""
+        new = self.build(embeddings)
+        if new.dim != self.dim:
+            raise ValueError(f"dim incohérente : {new.dim} != {self.dim}")
+        self.bits = np.vstack([self.bits, new.bits])
 
     def __len__(self) -> int:
         return self.bits.shape[0]

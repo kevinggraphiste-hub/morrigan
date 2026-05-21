@@ -40,7 +40,10 @@ def test_int8_build_shapes_and_dtype():
 def test_int8_is_4x_smaller_than_float32():
     emb = _normalized(100, 384)
     idx = Int8Index.build(emb)
-    assert idx.memory_bytes() == emb.nbytes // 4
+    # Les codes int8 = exactement 4× plus petits ; memory_bytes inclut
+    # en plus le(s) scale(s) (8 octets pour le scalaire global).
+    assert idx.codes.nbytes == emb.nbytes // 4
+    assert idx.memory_bytes() <= emb.nbytes // 4 + 16
 
 
 def test_int8_dequantize_is_close():

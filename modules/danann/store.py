@@ -19,6 +19,7 @@ import numpy as np
 
 from core.types import ModuleInput, ModuleOutput, MorriganModule
 from modules.danann.embeddings import EmbeddingEngine
+from modules.danann.quantization import RERANK_FACTOR, BinaryIndex, Int8Index
 from modules.danann.reranker import CrossEncoderReranker
 from modules.danann.supabase_backend import SupabaseVectorStore
 
@@ -66,15 +67,27 @@ class Danann(MorriganModule):
         top_k: int = 5,
         use_reranker: bool = True,
         reranker_top_k: int = 3,
+        compression: str = "none",
     ):
         self.backend = backend
         self.top_k = top_k
         self.reranker_top_k = reranker_top_k
 
+        # Phase 4 : compression de l'index mémoire.
+        #   "none"   : float32 (exact, défaut historique)
+        #   "int8"   : codes int8 par-vecteur (~4× moins de RAM)
+        #   "binary" : bits (coarse Hamming) + int8 (rerank) (~4.5× moins)
+        if compression not in ("none", "int8", "binary"):
+            raise ValueError(f"compression inconnue : {compression!r}")
+        self.compression = compression
+
         # Store en memoire (toujours disponible en fallback)
         self.chunks: List[str] = []
-        self.embeddings: Optional[np.ndarray] = None
+        self.embeddings: Optional[np.ndarray] = None  # float32, mode "none"
         self.metadata: List[Dict[str, Any]] = []
+        # Index compressés (modes int8 / binary) — float32 jamais conservé.
+        self._int8: Optional[Int8Index] = None
+        self._binary: Optional[BinaryIndex] = None
 
         # Moteur d'embeddings (lazy load)
         self.embedding_engine = EmbeddingEngine(model_name=embedding_model)
@@ -106,6 +119,43 @@ class Danann(MorriganModule):
         if self.embedding_engine.model is None:
             self.embedding_engine.load()
 
+    def _compressed_coarse(
+        self, query_emb: Any, pre_k: int
+    ) -> Tuple[np.ndarray, np.ndarray]:
+        """Recherche grossiere sur l'index compresse → (indices, scores).
+
+        - int8  : produit scalaire direct sur les codes int8.
+        - binary: filtre Hamming large (pre_k * RERANK_FACTOR) puis
+          re-score des candidats avec les codes int8 (étage fin).
+        Les embeddings MiniLM etant L2-normalises, le produit scalaire
+        approxime le cosine (comparable au mode "none").
+        """
+        q = np.asarray(query_emb, dtype=np.float32).ravel()
+        if self.compression == "binary" and self._binary is not None:
+            n = len(self.chunks)
+            cand_idx, _ = self._binary.search(q, min(n, pre_k * RERANK_FACTOR))
+            if cand_idx.size == 0:
+                return cand_idx, np.empty(0, dtype=np.float32)
+            # Re-score fin avec int8 (sans materialiser de float32).
+            codes = self._int8.codes[cand_idx].astype(np.float32)  # type: ignore[union-attr]
+            sc = self._int8.scale  # type: ignore[union-attr]
+            scale = sc[cand_idx] if isinstance(sc, np.ndarray) else sc
+            scores = (codes @ q) * scale
+            order = np.argsort(scores)[::-1][:pre_k]
+            return cand_idx[order], scores[order]
+        # int8
+        if self._int8 is None:
+            return np.empty(0, dtype=np.int64), np.empty(0, dtype=np.float32)
+        return self._int8.search(q, pre_k)
+
+    def memory_bytes(self) -> int:
+        """Empreinte mémoire de l'index vectoriel (octets)."""
+        if self.compression == "none":
+            return int(self.embeddings.nbytes) if self.embeddings is not None else 0
+        total = self._int8.memory_bytes() if self._int8 else 0
+        total += self._binary.memory_bytes() if self._binary else 0
+        return total
+
     def index(
         self, texts: List[str], metadata: Optional[List[Dict]] = None
     ) -> int:
@@ -131,19 +181,32 @@ class Danann(MorriganModule):
             return inserted
 
         # Backend memoire
-        new_embeddings_arr = np.array(new_embeddings)
-        if self.embeddings is None:
-            self.embeddings = new_embeddings_arr
+        new_arr = np.asarray(new_embeddings, dtype=np.float32)
+
+        if self.compression == "none":
+            if self.embeddings is None:
+                self.embeddings = new_arr
+            else:
+                self.embeddings = np.vstack([self.embeddings, new_arr])
         else:
-            self.embeddings = np.vstack([self.embeddings, new_embeddings_arr])
+            # Modes compressés : on quantize le lot et on JETTE le float32.
+            # int8 sert de représentation fine (mode int8 + rerank binary).
+            if self._int8 is None:
+                self._int8 = Int8Index.build(new_arr, per_vector=True)
+            else:
+                self._int8.extend(new_arr)
+            if self.compression == "binary":
+                if self._binary is None:
+                    self._binary = BinaryIndex.build(new_arr)
+                else:
+                    self._binary.extend(new_arr)
 
         self.chunks.extend(texts)
         self.metadata.extend(metadata)
 
         logger.info(
-            "Danann [memory] — %d chunks indexes (total: %d)",
-            len(texts),
-            len(self.chunks),
+            "Danann [memory/%s] — %d chunks indexes (total: %d)",
+            self.compression, len(texts), len(self.chunks),
         )
         return len(texts)
 
@@ -174,38 +237,48 @@ class Danann(MorriganModule):
             return self.supabase.search(query_emb, top_k=k)
 
         # Backend memoire
-        if not self.chunks or self.embeddings is None:
+        if not self.chunks:
             return []
 
-        query_vec = np.array(query_emb)
-        norms = np.linalg.norm(self.embeddings, axis=1) * np.linalg.norm(query_vec)
-        scores = np.dot(self.embeddings, query_vec) / (norms + 1e-10)
-
-        # Boost lexical : +0.08 par token rare de la query present dans le chunk
-        # (plafonne a +0.30). Corrige les cas ou deux chunks ont un score cosine
-        # proche mais un seul mentionne explicitement le sujet.
-        query_tokens = _tokenize(query)
-        if query_tokens:
-            lexical_boost = np.zeros(len(self.chunks), dtype=np.float32)
-            for i, chunk in enumerate(self.chunks):
-                chunk_tokens = _tokenize(chunk)
-                overlap = len(query_tokens & chunk_tokens)
-                lexical_boost[i] = min(0.30, 0.08 * overlap)
-            scores = scores + lexical_boost
-
-        # Phase 2 : filtrage par metadonnees (domain, type)
-        # On recupere plus de candidats pour compenser le filtrage
+        # Fenetre de candidats (avant filtrage + rerank). On recupere plus
+        # de candidats pour compenser le filtrage et nourrir le reranker.
         pre_k = k * 3 if (domain or chunk_type) else k
-        # Etendre aussi pour le reranker (il a besoin de plus de candidats)
         if self.reranker:
             pre_k = max(pre_k, k * 3)
 
-        top_indices = np.argsort(scores)[::-1][:pre_k]
+        # Boost lexical : +0.08 par token rare de la query present dans le
+        # chunk (plafonne a +0.30). Corrige les cas ou deux chunks ont un
+        # score cosine proche mais un seul mentionne explicitement le sujet.
+        query_tokens = _tokenize(query)
 
-        candidates = [
-            (self.chunks[i], float(scores[i]), self.metadata[i])
-            for i in top_indices
-        ]
+        if self.compression == "none":
+            if self.embeddings is None:
+                return []
+            query_vec = np.asarray(query_emb, dtype=np.float32)
+            norms = np.linalg.norm(self.embeddings, axis=1) * np.linalg.norm(query_vec)
+            scores = np.dot(self.embeddings, query_vec) / (norms + 1e-10)
+            if query_tokens:
+                boost = np.zeros(len(self.chunks), dtype=np.float32)
+                for i, chunk in enumerate(self.chunks):
+                    boost[i] = min(0.30, 0.08 * len(query_tokens & _tokenize(chunk)))
+                scores = scores + boost
+            top_indices = np.argsort(scores)[::-1][:pre_k]
+            candidates = [
+                (self.chunks[i], float(scores[i]), self.metadata[i])
+                for i in top_indices
+            ]
+        else:
+            # Coarse compresse (int8 ou binary→int8) → fenetre de candidats,
+            # puis boost lexical sur cette fenetre uniquement (on ne tokenize
+            # pas tout le corpus, ce qui ne tiendrait pas a grande echelle).
+            cand_idx, base_scores = self._compressed_coarse(query_emb, pre_k)
+            candidates = []
+            for j, i in enumerate(cand_idx):
+                score = float(base_scores[j])
+                if query_tokens:
+                    score += min(0.30, 0.08 * len(query_tokens & _tokenize(self.chunks[i])))
+                candidates.append((self.chunks[i], score, self.metadata[i]))
+            candidates.sort(key=lambda c: c[1], reverse=True)
 
         # Filtrage par domaine
         if domain:
@@ -295,6 +368,7 @@ class Danann(MorriganModule):
             "name": "Danann",
             "type": "vector_memory",
             "backend": self.backend,
+            "compression": self.compression,
             "reranker": "on" if self.reranker else "off",
             "capabilities": [
                 "semantic_search",
@@ -302,6 +376,8 @@ class Danann(MorriganModule):
                 "fact_storage",
                 "metadata_filtering",
                 "cross_encoder_reranking",
+                "vector_quantization",
             ],
             "indexed_chunks": self.count(),
+            "index_memory_bytes": self.memory_bytes(),
         }
