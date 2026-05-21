@@ -114,20 +114,40 @@ class RWKVBackend:
     # ─── Prompt ─────────────────────────────────────────────────
 
     @staticmethod
-    def format_prompt(query: str, context: Optional[List[str]] = None) -> str:
+    def format_prompt(
+        query: str,
+        context: Optional[List[str]] = None,
+        strict: bool = True,
+    ) -> str:
         """Construit un prompt au format RWKV World.
 
-        Si `context` (chunks Danann / faits Ogham) est fourni, on
-        l'injecte avant la question — base du mode RAG de PR C. Sans
-        contexte, simple question/réponse.
+        - `context` : chunks Danann + faits Ogham. Injectés avant la
+          question (RAG).
+        - `strict` (défaut True) : instruit le modèle de répondre
+          UNIQUEMENT à partir du contexte et de dire "Je ne sais pas"
+          sinon. C'est le cœur du "0 hallucination" de Morrigan — on
+          ne peut pas garantir à 100 % qu'un 1.6B obéisse, mais le
+          grounding + l'instruction réduisent fortement l'invention.
+          Sans contexte, l'appelant (Scáthach) ne devrait pas appeler
+          le LLM en mode strict (il renvoie un "je ne sais pas"
+          déterministe via template).
         """
         if context:
             ctx = "\n".join(f"- {c}" for c in context if c.strip())
-            user = (
-                "En t'appuyant uniquement sur ces informations :\n"
-                f"{ctx}\n\n"
-                f"Réponds à la question : {query}"
-            )
+            if strict:
+                user = (
+                    "Réponds à la question en t'appuyant UNIQUEMENT sur les "
+                    "informations ci-dessous. Si la réponse ne s'y trouve pas, "
+                    'réponds exactement "Je ne sais pas.".\n\n'
+                    f"Informations :\n{ctx}\n\n"
+                    f"Question : {query}"
+                )
+            else:
+                user = (
+                    "En t'appuyant sur ces informations :\n"
+                    f"{ctx}\n\n"
+                    f"Réponds à la question : {query}"
+                )
         else:
             user = query
         return f"User: {user}\n\nAssistant:"
@@ -171,8 +191,9 @@ class RWKVBackend:
         self,
         query: str,
         context: Optional[List[str]] = None,
+        strict: bool = True,
         **gen_kwargs,
     ) -> str:
-        """Raccourci : formate le prompt RWKV World puis génère."""
-        prompt = self.format_prompt(query, context)
+        """Raccourci : formate le prompt RWKV World (strict par défaut) puis génère."""
+        prompt = self.format_prompt(query, context, strict=strict)
         return self.generate(prompt, **gen_kwargs)

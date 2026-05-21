@@ -71,6 +71,7 @@ class Scathach(MorriganModule):
         backend: str = "template",
         templates_dir: str = "modules/scathach/templates",
         rwkv_backend: Optional[Any] = None,
+        strict_rag: bool = True,
     ):
         """
         backend :
@@ -79,10 +80,17 @@ class Scathach(MorriganModule):
           - "auto"     : alias de "rwkv" (RWKV si dispo, sinon template)
         rwkv_backend : instance injectable (tests). Si None et backend
           le requiert, un RWKVBackend() est créé paresseusement.
+        strict_rag (défaut True) : en génération RWKV, n'autorise la
+          génération QUE si un contexte (chunks Danann + faits Ogham)
+          est disponible, et instruit le modèle de répondre "Je ne
+          sais pas" si la réponse n'y est pas. Sans contexte → pas
+          d'appel LLM, on renvoie un "je ne sais pas" déterministe via
+          template. C'est le cœur du "0 hallucination" de Morrigan.
         """
         self.backend = backend
         self.templates_dir = Path(templates_dir)
         self._rwkv = rwkv_backend
+        self.strict_rag = strict_rag
 
         self.env = Environment(
             loader=FileSystemLoader(str(self.templates_dir)),
@@ -139,30 +147,87 @@ class Scathach(MorriganModule):
             },
         )
 
+    # Humanisation des prédicats du KG Ogham pour le contexte RAG.
+    _PREDICATE_FR = {
+        "is_a": "est",
+        "has": "possède",
+        "uses": "utilise",
+        "of": "de",
+        "co_occurs_with": "est lié à",
+    }
+    # Plafond de faits Ogham injectés (évite de noyer le prompt).
+    OGHAM_CONTEXT_FACTS = 8
+
     def _generate_rwkv(
         self, query: str, previous: Dict[str, Any]
     ) -> Optional[str]:
-        """Génère via RWKV en s'appuyant sur le contexte des modules.
+        """Génère via RWKV avec RAG (chunks Danann + faits Ogham).
 
-        Renvoie None si le backend RWKV est indisponible ou échoue —
-        l'appelant retombe alors sur les templates (zéro régression).
-
-        PR B : RAG "souple" — on passe les chunks pertinents en contexte.
-        PR C fera le RAG strict (refus si pas de contexte, grounding).
+        Renvoie None si :
+          - le backend RWKV est indisponible ou échoue (→ fallback template)
+          - mode `strict_rag` et AUCUN contexte disponible (→ fallback
+            template = "je ne sais pas" déterministe, 0 hallucination)
         """
         backend = self._get_rwkv()
         if backend is None or not backend.is_available():
             return None
 
+        # Contexte RAG : chunks Danann pertinents + faits structurés Ogham.
         chunks = self._relevant_chunks(query, previous)
         context = [c.get("text", "") for c in chunks[: self.RWKV_CONTEXT_CHUNKS]]
+        context += self._ogham_context(previous)
         context = [c for c in context if c.strip()]
 
+        # RAG strict : pas de contexte → on NE génère PAS. L'appelant
+        # retombe sur not_found.j2 ("[Morrigan] Je n'ai pas d'information…").
+        if self.strict_rag and not context:
+            logger.info(
+                "RAG strict : aucun contexte fiable → pas de génération RWKV "
+                "(réponse 'je ne sais pas' via template)"
+            )
+            return None
+
         try:
-            return backend.answer(query, context=context or None)
+            return backend.answer(
+                query, context=context or None, strict=self.strict_rag
+            )
         except Exception as e:  # pragma: no cover - dépend de l'env llama.cpp
             logger.error("RWKV génération échouée (%s) — fallback template", e)
             return None
+
+    def _ogham_context(self, previous: Dict[str, Any]) -> List[str]:
+        """Convertit les faits du KG Ogham (compare/facts) en lignes de contexte FR."""
+        if "ogham" not in previous:
+            return []
+        result = previous["ogham"].result
+        if not result or not isinstance(result, dict):
+            return []
+
+        lines: List[str] = []
+
+        compare = result.get("compare")
+        if compare:
+            a, b = compare.get("a", "?"), compare.get("b", "?")
+            common = [n.get("label", n.get("id", "")) for n in compare.get("common_neighbors", [])]
+            a_only = [n.get("label", n.get("id", "")) for n in compare.get("a_only", [])]
+            b_only = [n.get("label", n.get("id", "")) for n in compare.get("b_only", [])]
+            if common:
+                lines.append(f"{a} et {b} ont en commun : {', '.join(common)}.")
+            if a_only:
+                lines.append(f"{a} spécifiquement : {', '.join(a_only)}.")
+            if b_only:
+                lines.append(f"{b} spécifiquement : {', '.join(b_only)}.")
+
+        facts = result.get("facts")
+        if facts:
+            for r in facts.get("relations", [])[: self.OGHAM_CONTEXT_FACTS]:
+                subj = r.get("subject", "")
+                obj = r.get("object", "")
+                pred = self._PREDICATE_FR.get(r.get("predicate", ""), r.get("predicate", ""))
+                if subj and obj:
+                    lines.append(f"{subj} {pred} {obj}.")
+
+        return lines
 
     def _relevant_chunks(
         self, query: str, previous: Dict[str, Any]
