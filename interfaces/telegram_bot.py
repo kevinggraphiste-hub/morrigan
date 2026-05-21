@@ -13,7 +13,9 @@ import asyncio
 import logging
 import os
 import sys
+import time
 from pathlib import Path
+from typing import AsyncIterator, Awaitable, Callable
 
 sys.path.insert(0, ".")
 
@@ -39,6 +41,45 @@ logger = logging.getLogger("morrigan.telegram")
 
 # Limite Telegram : 4096 caracteres par message
 TELEGRAM_MAX_LEN = 4000
+
+# Intervalle minimal entre deux editions de message (anti flood-control
+# Telegram : ~1 edit/s est sûr).
+STREAM_EDIT_INTERVAL = 1.0
+
+
+async def stream_collect(
+    pieces: AsyncIterator[str],
+    edit: Callable[[str, bool], Awaitable[None]],
+    *,
+    interval: float = STREAM_EDIT_INTERVAL,
+    clock: Callable[[], float] = time.monotonic,
+) -> str:
+    """Consomme un flux de morceaux et édite un message au fil de l'eau.
+
+    - Accumule les morceaux ; appelle `edit(texte, final=False)` au plus
+      une fois toutes `interval` secondes (throttle anti flood Telegram).
+    - Appelle `edit(texte, final=True)` à la fin avec le texte complet.
+    - Les erreurs d'édition (ex: "message not modified", flood) sont
+      avalées : une édition ratée ne casse pas le flux.
+
+    Renvoie le texte final accumulé. `clock` est injectable pour les tests.
+    """
+    accumulated = ""
+    last_edit = 0.0
+    async for piece in pieces:
+        accumulated += piece
+        now = clock()
+        if accumulated.strip() and (now - last_edit) >= interval:
+            last_edit = now
+            try:
+                await edit(accumulated, False)
+            except Exception:  # noqa: BLE001 - édition best-effort
+                pass
+    try:
+        await edit(accumulated, True)
+    except Exception:  # noqa: BLE001
+        pass
+    return accumulated
 
 
 def _session_id(update: Update) -> str:
@@ -92,9 +133,11 @@ class MorriganTelegramBot:
             "- Brigid    : pattern recognition (LNN)\n"
             "- Ogham     : raisonnement symbolique\n"
             "- Danann    : memoire vectorielle\n"
-            "- Scathach  : generation de texte\n"
+            "- Scathach  : generation de texte (RWKV, streaming)\n"
             "- Cauldron  : memoire de conversation\n\n"
-            "Phase 1 : generation par templates. RWKV viendra en Phase 2."
+            "Generation neuronale RWKV avec RAG strict (0 hallucination) : "
+            "je reponds depuis mon corpus, ou j'admets que je ne sais pas. "
+            "La reponse s'affiche au fil de l'eau."
         )
 
     async def cmd_reset(
@@ -123,23 +166,43 @@ class MorriganTelegramBot:
         sid = _session_id(update)
         logger.info("TG[%s]: %s", sid, user_input[:80])
 
-        # Feedback visuel pendant le traitement
+        # Feedback visuel + message placeholder qu'on va éditer au fil de l'eau.
         await context.bot.send_chat_action(
             chat_id=update.effective_chat.id, action=ChatAction.TYPING
         )
+        placeholder = await update.message.reply_text("▌")
+
+        async def _edit(text: str, final: bool) -> None:
+            if final:
+                display = (text.strip() or "[Morrigan] (réponse vide)")
+                display = _chunk_message(display)[0]  # 1er bloc ; reste envoyé après
+            else:
+                # Curseur pour montrer que la génération est en cours.
+                display = text[:TELEGRAM_MAX_LEN].rstrip() + " ▌"
+            await placeholder.edit_text(display)
 
         try:
-            response = await self.dagda.process(user_input, session_id=sid)
+            response = await stream_collect(
+                self.dagda.process_stream(user_input, session_id=sid), _edit
+            )
         except Exception as exc:
             logger.exception("Erreur lors du traitement")
             response = f"[Morrigan] Erreur interne : {exc}"
+            try:
+                await placeholder.edit_text(response)
+            except Exception:  # noqa: BLE001
+                pass
 
         # Memoriser dans Cauldron (An Dagda ne le fait pas automatiquement)
+        response = response.strip() or "[Morrigan] (réponse vide)"
         self.cauldron.add_turn(sid, "user", user_input)
         self.cauldron.add_turn(sid, "morrigan", response)
 
-        for part in _chunk_message(response):
-            await update.message.reply_text(part)
+        # Débordement : si la réponse dépasse la limite Telegram, le 1er
+        # bloc est déjà dans le message édité ; on envoie le reste à part.
+        parts = _chunk_message(response)
+        for extra in parts[1:]:
+            await update.message.reply_text(extra)
 
 
 async def _build_dagda() -> tuple[AnDagda, Cauldron]:
@@ -150,7 +213,9 @@ async def _build_dagda() -> tuple[AnDagda, Cauldron]:
     dagda.register_module("brigid", Brigid())
     dagda.register_module("ogham", Ogham())
     dagda.register_module("danann", Danann(backend="memory"))
-    dagda.register_module("scathach", Scathach())
+    # backend RWKV → vraie génération + streaming (fallback template si
+    # le modèle GGUF est absent).
+    dagda.register_module("scathach", Scathach(backend="rwkv"))
     dagda.register_module("cauldron", cauldron)
 
     await dagda.initialize()
