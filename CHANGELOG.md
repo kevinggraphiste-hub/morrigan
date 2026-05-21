@@ -19,6 +19,17 @@ graph, corpus code). Phase 3 livrée (génération RWKV + RAG strict +
 streaming). **Phase 4 démarrée** — corpus étendu et compression d'index.
 
 ### Ajouté — Phase 4 (corpus étendu et compression)
+- **Compression branchée dans Danann** : option `compression` au
+  constructeur — `none` (float32, défaut, inchangé), `int8` (codes
+  par-vecteur, **~4× moins de RAM**), `binary` (Hamming coarse + int8
+  rerank, **~4.5× moins**). En mode compressé, le float32 n'est
+  **jamais conservé** (quantization par lot, incrémentale). La
+  recherche garde le boost lexical (sur la fenêtre de candidats), le
+  filtrage par domaine/type et le reranker cross-encoder. `top-1`
+  compressé == `top-1` exact sur des requêtes nettes (testé).
+  `memory_bytes()` + `index_memory_bytes` dans capabilities. +13 tests.
+- **`Int8Index` par-vecteur + `extend`** (incrémental) et
+  `BinaryIndex.extend` ajoutés au module quantization.
 - **Quantization vectorielle** (`modules/danann/quantization.py`,
   pure NumPy) : compresse l'index d'embeddings pour tenir un gros
   corpus sur PC modeste.
