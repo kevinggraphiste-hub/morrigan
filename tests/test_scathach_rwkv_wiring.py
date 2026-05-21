@@ -56,8 +56,11 @@ def test_template_backend_never_uses_rwkv():
 
 
 def test_rwkv_backend_used_when_available():
+    # strict_rag=False : ce test cible le wiring pur (sans contexte).
+    # Le gating RAG strict (sans contexte → pas de génération) est
+    # couvert dans test_scathach_rag_strict.py.
     fake = FakeRWKV(available=True)
-    sc = Scathach(backend="rwkv", rwkv_backend=fake)
+    sc = Scathach(backend="rwkv", rwkv_backend=fake, strict_rag=False)
     out = asyncio.run(sc.process(ModuleInput(query="Qu'est-ce que TCP ?", context={"previous_results": {}})))
     assert out.metadata["generated_by"] == "rwkv"
     assert out.result.startswith("[RWKV]")
@@ -86,7 +89,7 @@ def test_rwkv_receives_danann_chunks_as_context():
 
 def test_auto_backend_is_alias_for_rwkv():
     fake = FakeRWKV(available=True)
-    sc = Scathach(backend="auto", rwkv_backend=fake)
+    sc = Scathach(backend="auto", rwkv_backend=fake, strict_rag=False)
     out = asyncio.run(sc.process(ModuleInput(query="Salut", context={"previous_results": {}})))
     assert out.metadata["generated_by"] == "rwkv"
 
@@ -108,7 +111,9 @@ def test_rwkv_exception_falls_back_to_template():
         def answer(self, *a, **k):
             raise RuntimeError("llama.cpp a planté")
 
-    sc = Scathach(backend="rwkv", rwkv_backend=BoomRWKV(available=True))
+    # strict_rag=False pour que answer() soit bien appelé même sans
+    # contexte (sinon le gating strict renverrait None avant l'appel).
+    sc = Scathach(backend="rwkv", rwkv_backend=BoomRWKV(available=True), strict_rag=False)
     out = asyncio.run(sc.process(ModuleInput(query="Bonjour", context={"previous_results": {}})))
     assert out.metadata["generated_by"] == "template"
     assert "Morrigan" in out.result
