@@ -1,27 +1,178 @@
 """
-SCÁTHACH — Backend RWKV.
+SCÁTHACH — Backend RWKV (génération neuronale, Phase 3).
 
-Intégration de RWKV (0.19B-1.5B) pour la génération de texte
-en Phase 2+. Mémoire constante, inférence linéaire, CPU-friendly.
+Inférence RWKV quantizé via llama.cpp (`llama-cpp-python`). RWKV est un
+RNN à attention linéaire : mémoire constante, inférence linéaire en
+longueur, CPU-friendly — cohérent avec la philo Morrigan "PC modeste".
+
+Modèle par défaut : RWKV-6 World 1.6B, quantization Q4_K (~993 Mo, GGUF).
+Validé en local : génère du français cohérent à ~10-12 tok/s sur CPU.
+Q2_K testé mais trop agressif (sortie dégénérée) → Q4_K est le plancher
+de qualité. Le fichier GGUF est gitignoré (option B : artefact
+téléchargé via `scripts/fetch_rwkv_model.py`, pas commité).
+
+Dégradation gracieuse : si `llama_cpp` n'est pas installé ou le modèle
+absent, le backend est "indisponible" et Scáthach (PR B) retombe sur
+ses templates Jinja2 — pas de crash.
 """
 
+from __future__ import annotations
+
 import logging
+from pathlib import Path
+from typing import List, Optional
 
 logger = logging.getLogger("morrigan.scathach.rwkv")
 
+# Repo + fichier GGUF par défaut (cf. scripts/fetch_rwkv_model.py).
+DEFAULT_REPO = "latestissue/rwkv-6-world-1b6-gguf"
+DEFAULT_FILENAME = "rwkv-6-world-1.6b-Q4_K.gguf"
+DEFAULT_MODEL_PATH = (
+    Path(__file__).resolve().parent.parent.parent
+    / "data" / "models" / DEFAULT_FILENAME
+)
+
+# Defaults de sampling RWKV. repeat_penalty élevé est ESSENTIEL :
+# sans lui, RWKV part en boucle ("de-de-de…"). Validé empiriquement.
+DEFAULT_TEMPERATURE = 0.5
+DEFAULT_TOP_P = 0.7
+DEFAULT_REPEAT_PENALTY = 1.3
+DEFAULT_MAX_TOKENS = 256
+
+# Format de prompt RWKV World. Le modèle est entraîné sur ce schéma
+# exact ("User:" / "Assistant:" séparés par double newline) — s'en
+# écarter dégrade fortement la qualité.
+_STOP_SEQUENCES = ["\n\nUser:", "\n\nUser :", "\nUser:"]
+
 
 class RWKVBackend:
+    """Backend de génération RWKV via llama.cpp.
+
+    Chargement paresseux : le modèle (~1 Go) n'est chargé qu'au premier
+    `generate()`. `is_available()` permet à l'appelant (Scáthach) de
+    décider du fallback sans déclencher le chargement.
     """
-    Backend RWKV pour la génération de texte.
 
-    Phase 2 : À implémenter avec rwkv.cpp.
-    """
+    def __init__(
+        self,
+        model_path: Optional[Path] = None,
+        n_ctx: int = 1024,
+        n_threads: int = 4,
+    ) -> None:
+        self.model_path = Path(model_path) if model_path else DEFAULT_MODEL_PATH
+        self.n_ctx = n_ctx
+        self.n_threads = n_threads
+        self._llm = None
+        self._load_error: Optional[str] = None
 
-    def __init__(self, model_path: str = ""):
-        self.model_path = model_path
-        self.model = None
-        logger.info("RWKV Backend — non implémenté (Phase 2)")
+    # ─── Chargement ─────────────────────────────────────────────
 
-    def generate(self, prompt: str, max_tokens: int = 256) -> str:
-        """Génère du texte via RWKV."""
-        raise NotImplementedError("RWKV Backend sera implémenté en Phase 2")
+    def _try_load(self) -> bool:
+        """Charge le modèle au 1er usage. Renvoie True si OK."""
+        if self._llm is not None:
+            return True
+        if self._load_error is not None:
+            return False  # déjà tenté, déjà échoué
+
+        if not self.model_path.exists():
+            self._load_error = (
+                f"Modèle GGUF absent : {self.model_path}. "
+                f"Lance `python scripts/fetch_rwkv_model.py`."
+            )
+            logger.warning("RWKV indisponible — %s", self._load_error)
+            return False
+
+        try:
+            from llama_cpp import Llama  # noqa: PLC0415
+        except ImportError as e:
+            self._load_error = f"llama-cpp-python non installé ({e})"
+            logger.warning("RWKV indisponible — %s", self._load_error)
+            return False
+
+        try:
+            self._llm = Llama(
+                model_path=str(self.model_path),
+                n_ctx=self.n_ctx,
+                n_threads=self.n_threads,
+                verbose=False,
+            )
+            logger.info("RWKV chargé : %s", self.model_path.name)
+            return True
+        except Exception as e:  # pragma: no cover - dépend de l'env llama.cpp
+            self._load_error = f"Échec chargement llama.cpp : {e}"
+            logger.error("RWKV — %s", self._load_error)
+            return False
+
+    def is_available(self) -> bool:
+        """True si le backend peut générer (lib + modèle présents)."""
+        return self._try_load()
+
+    @property
+    def load_error(self) -> Optional[str]:
+        return self._load_error
+
+    # ─── Prompt ─────────────────────────────────────────────────
+
+    @staticmethod
+    def format_prompt(query: str, context: Optional[List[str]] = None) -> str:
+        """Construit un prompt au format RWKV World.
+
+        Si `context` (chunks Danann / faits Ogham) est fourni, on
+        l'injecte avant la question — base du mode RAG de PR C. Sans
+        contexte, simple question/réponse.
+        """
+        if context:
+            ctx = "\n".join(f"- {c}" for c in context if c.strip())
+            user = (
+                "En t'appuyant uniquement sur ces informations :\n"
+                f"{ctx}\n\n"
+                f"Réponds à la question : {query}"
+            )
+        else:
+            user = query
+        return f"User: {user}\n\nAssistant:"
+
+    # ─── Génération ─────────────────────────────────────────────
+
+    def generate(
+        self,
+        prompt: str,
+        max_tokens: int = DEFAULT_MAX_TOKENS,
+        temperature: float = DEFAULT_TEMPERATURE,
+        top_p: float = DEFAULT_TOP_P,
+        repeat_penalty: float = DEFAULT_REPEAT_PENALTY,
+        seed: Optional[int] = None,
+    ) -> str:
+        """Génère du texte à partir d'un prompt déjà formaté.
+
+        Lève `RuntimeError` si le backend n'est pas disponible — c'est à
+        l'appelant de vérifier `is_available()` d'abord (Scáthach le fait
+        et retombe sur ses templates sinon).
+        """
+        if not self._try_load():
+            raise RuntimeError(
+                f"RWKVBackend indisponible : {self._load_error}"
+            )
+
+        kwargs = {
+            "max_tokens": max_tokens,
+            "temperature": temperature,
+            "top_p": top_p,
+            "repeat_penalty": repeat_penalty,
+            "stop": _STOP_SEQUENCES,
+        }
+        if seed is not None:
+            kwargs["seed"] = seed
+
+        out = self._llm(prompt, **kwargs)  # type: ignore[misc]
+        return out["choices"][0]["text"].strip()
+
+    def answer(
+        self,
+        query: str,
+        context: Optional[List[str]] = None,
+        **gen_kwargs,
+    ) -> str:
+        """Raccourci : formate le prompt RWKV World puis génère."""
+        prompt = self.format_prompt(query, context)
+        return self.generate(prompt, **gen_kwargs)

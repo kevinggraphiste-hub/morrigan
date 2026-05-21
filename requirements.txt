@@ -23,6 +23,12 @@ markovify              # Chaines de Markov pour la variabilite
 sqlparse               # Parser SQL (structure ; cf. SqlVerifier pour limitations)
 tinycss2               # Parser CSS3 utilise par CssVerifier
 
+# Generation neuronale Scathach (Phase 3)
+# Wheel CPU prebuilt servi par l'index abetlen → pas de build cmake.
+# pip/uv prennent le wheel binaire plutot que le sdist PyPI.
+--extra-index-url https://abetlen.github.io/llama-cpp-python/whl/cpu
+llama-cpp-python       # Backend RWKV via llama.cpp (modele GGUF, CPU)
+
 # Interface
 python-telegram-bot    # Interface Telegram
 
