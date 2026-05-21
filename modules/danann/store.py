@@ -9,10 +9,12 @@ Backends supportes :
 Phase 2 : metadonnees riches, reranker cross-encoder, filtrage par domaine/type.
 """
 
+import json
 import logging
 import os
 import re
 import unicodedata
+from pathlib import Path
 from typing import Any, Dict, List, Optional, Set, Tuple
 
 import numpy as np
@@ -315,6 +317,86 @@ class Danann(MorriganModule):
         if self.backend == "supabase" and self.supabase:
             return self.supabase.count()
         return len(self.chunks)
+
+    # ─── Persistance disque (Phase 4) ───────────────────────────
+
+    def save_index(self, path: Any) -> Path:
+        """Sauve l'index mémoire sur disque (dossier).
+
+        Écrit `corpus.json` (compression, chunks, metadata, modèle) et
+        `vectors.npz` (arrays numériques). En mode compressé, seuls les
+        codes quantizés sont sauvés — pas de float32. Permet de
+        reconstruire l'index sans réembedder (gros corpus → chargement
+        rapide, RAM réduite).
+        """
+        path = Path(path)
+        path.mkdir(parents=True, exist_ok=True)
+
+        corpus = {
+            "compression": self.compression,
+            "embedding_model": self.embedding_engine.model_name,
+            "chunks": self.chunks,
+            "metadata": self.metadata,
+        }
+        (path / "corpus.json").write_text(
+            json.dumps(corpus, ensure_ascii=False), encoding="utf-8"
+        )
+
+        arrays: Dict[str, np.ndarray] = {}
+        if self.compression == "none":
+            if self.embeddings is not None:
+                arrays["embeddings"] = self.embeddings
+        else:
+            assert self._int8 is not None
+            arrays["int8_codes"] = self._int8.codes
+            arrays["int8_scale"] = np.asarray(self._int8.scale)
+            if self.compression == "binary":
+                assert self._binary is not None
+                arrays["binary_bits"] = self._binary.bits
+                arrays["binary_dim"] = np.asarray(self._binary.dim)
+        np.savez_compressed(path / "vectors.npz", **arrays)
+
+        logger.info(
+            "Danann index sauvé : %d chunks (%s) → %s",
+            len(self.chunks), self.compression, path,
+        )
+        return path
+
+    @classmethod
+    def load_index(cls, path: Any, **kwargs: Any) -> "Danann":
+        """Recharge un index sauvé par save_index (sans réembedder).
+
+        Le modèle d'embeddings n'est chargé que paresseusement à la
+        première requête (pour encoder la query) — pas pour l'index.
+        """
+        path = Path(path)
+        corpus = json.loads((path / "corpus.json").read_text(encoding="utf-8"))
+
+        d = cls(
+            compression=corpus["compression"],
+            embedding_model=corpus.get("embedding_model", "all-MiniLM-L6-v2"),
+            **kwargs,
+        )
+        d.chunks = list(corpus["chunks"])
+        d.metadata = list(corpus["metadata"])
+
+        data = np.load(path / "vectors.npz")
+        if d.compression == "none":
+            d.embeddings = data["embeddings"] if "embeddings" in data else None
+        else:
+            scale_arr = data["int8_scale"]
+            scale: Any = float(scale_arr) if scale_arr.ndim == 0 else scale_arr
+            d._int8 = Int8Index(codes=data["int8_codes"], scale=scale)
+            if d.compression == "binary":
+                d._binary = BinaryIndex(
+                    bits=data["binary_bits"], dim=int(data["binary_dim"])
+                )
+
+        logger.info(
+            "Danann index chargé : %d chunks (%s) depuis %s",
+            len(d.chunks), d.compression, path,
+        )
+        return d
 
     async def process(self, input: ModuleInput) -> ModuleOutput:
         """Recherche dans la memoire vectorielle."""

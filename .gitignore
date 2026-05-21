@@ -30,6 +30,9 @@ data/logs/*.log
 # le corpus source, pas les sorties dérivées qui sont régénérables).
 data/models/*.json
 data/models/*.gguf
+data/models/*.npz
+# Index Danann compressés (dossiers contenant corpus.json + vectors.npz)
+data/models/index*/
 
 # Env supplémentaires
 .venv-uv/
