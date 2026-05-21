@@ -4,9 +4,11 @@
 > conversationnelle des LLMs sur des domaines ciblés, en tournant localement
 > sur du matériel modeste, sans GPU, sans cloud, sans hallucination.
 
-**Statut : Phase 1 — squelette fonctionnel.** Pipeline end-to-end opérationnel,
-corpus d'exemple, interface Telegram, tests d'intégration. Projet de recherche
-appliquée, pas encore un produit fini.
+**Statut : Phases 1, 2 et 3 livrées (cœur).** Pipeline end-to-end CPU,
+6 modules + agent Morrigan-Code, classifieur LNN entraîné (Brigid CfC),
+knowledge graph (Ogham), et génération neuronale RWKV avec RAG strict
+(0 hallucination). Reste l'optimisation de la latence et le corpus
+étendu (Phase 4). Projet de recherche appliquée, pas un produit fini.
 
 ---
 
@@ -95,43 +97,32 @@ Six modules nommés d'après la mythologie celtique :
 
 ---
 
-## État actuel (Phase 1)
+## État actuel (Phases 1-3 livrées)
 
 ### Ce qui marche
 
-- Pipeline end-to-end : input → classification → retrieval → génération → output
-- Classification heuristique robuste (factuel / comparaison / explication / conversation / créatif)
-- Normalisation des accents, détection des salutations, signaux interrogatifs
-- Retrieval hybride : cosine similarity + boost lexical sur tokens rares
-- Garde anti-faux-positif (au moins un token rare de la query doit matcher)
-- Nettoyage markdown automatique des chunks
-- Templates Jinja2 (factuel, comparaison, explication, conversation, not_found)
-- Corpus d'exemple : 28 chunks sur 4 domaines (réseau, mythologie celtique, IA, projet)
-- Interface CLI + Telegram fonctionnelles
-- Backends Danann branchables (memory / Supabase pgvector)
-- Script d'ingestion automatique pour les corpus `.md` et `.txt`
-- Tests d'intégration end-to-end
+- Pipeline end-to-end : input → classification → retrieval → raisonnement → génération → output
+- **Classification d'intention par LNN** : Brigid (CfC ncps 384→16→6) entraînée sur 504 exemples FR, val_acc ~88 %, avec fallback heuristiques sous le seuil de confiance
+- **Génération neuronale** : Scáthach v2 backend RWKV-6 1.6B Q4_K (llama.cpp, CPU), mode template en fallback
+- **RAG strict (0 hallucination)** : génération ancrée sur chunks Danann + faits KG ; refus déterministe « je ne sais pas » sans contexte fiable
+- **Knowledge graph** (Ogham) : 267 entités / 430 relations extraites du corpus, requêtes `compare` / `facts_about`
+- **Agent Morrigan-Code** : vérification de syntaxe 6 langages (Python, Bash, JS, SQL, HTML, CSS)
+- Retrieval hybride Danann : cosine + boost lexical + reranker cross-encoder, filtrage par domaine, garde anti-faux-positif
+- Interfaces CLI + Telegram, backends Danann branchables (memory / Supabase pgvector), script d'ingestion
+- **227 tests** (pytest), 5 workflows CI (tests, version-sync, release, brigid-train, kg-build)
 
 ### Performances mesurées
 
-Sur un corpus de 28 chunks avec 10 requêtes de test variées (factuel, comparaison,
-explication, fallback) :
-
-- **Latence moyenne : ~50-150 ms par requête** (CPU, i5-10210U)
-- **Empreinte RAM : ~300 Mo** (embeddings + numpy + code)
-- **Précision factuelle : 10/10** sur le corpus de test après correctifs
-  (normalisation accents + garde anti-faux-positif)
+- **Retrieval/classification** : ~50-150 ms par requête (CPU, i5-10210U), empreinte ~300 Mo
+- **Génération RWKV** (1.6B Q4_K, CPU contraint) : ~10-12 tok/s, latence p50 ~12.7 s pour une réponse de quelques phrases — cf. `docs/benchmarks.md`
+- **0 hallucination** : 100 % de refus sur les queries hors-corpus (benchmark)
 
 ### Ce qui ne marche pas encore
 
-- **Pas de vraie génération** : Scáthach assemble des templates et concatène des
-  chunks. Pas de reformulation naturelle, pas de synthèse.
-- **Pas de zero-shot** : Morrigan ne sait que ce qui est dans son corpus. Par
-  design — on préfère le fallback honnête à l'hallucination.
-- **Brigid n'est pas entraînée** : classification encore basée sur des heuristiques.
-- **Ogham minimal** : pyDatalog chargé mais pas encore utilisé pour du vrai
-  raisonnement multi-étapes.
-- **Pas de knowledge graph** : les relations entre entités ne sont pas exploitées.
+- **Latence de génération élevée** : un 1.6B sur CPU contraint reste loin de la cible < 1 s. Chantier d'optimisation (quantization plus agressive, modèle plus petit, streaming) — Phase 4.
+- **Pas de zero-shot** : Morrigan ne répond que depuis son corpus. Par design — fallback honnête plutôt qu'hallucination.
+- **Corpus encore restreint** : quelques domaines curatés. L'ingestion massive (Wikipedia FR, compression) est l'objet de la Phase 4.
+- **Benchmarks vs LLMs commerciaux** : pas encore réalisés.
 
 ---
 
@@ -251,7 +242,7 @@ morrigan/
 
 ## Roadmap
 
-### Phase 1 — Squelette fonctionnel *(actuel)*
+### Phase 1 — Squelette fonctionnel ✅
 
 - [x] An Dagda orchestrateur
 - [x] 5 modules enregistrés et branchés
@@ -261,22 +252,23 @@ morrigan/
 - [x] Corpus d'exemple, script d'ingestion
 - [x] Tests d'intégration
 
-### Phase 2 — Indexation multi-niveaux et spécialisation *(prochain)*
+### Phase 2 — Indexation multi-niveaux et spécialisation ✅
 
-- [ ] Métadonnées riches par chunk (type, domaine, source, version, confiance)
-- [ ] Reranker cross-encoder sur les top candidats
-- [ ] Premier agent spécialisé : **Morrigan-Code** (Python, JS/TS, Bash, SQL, HTML/CSS)
-  - Vérifieur AST par langage (module `ast`, `tree-sitter`, `sqlparse`…)
-  - Corpus dédié (docs officielles, MDN, manpages, Stack Overflow curé)
-- [ ] Brigid entraînée (CfC sur 200-500 exemples de classification)
-- [ ] Knowledge graph via extraction d'entités
+- [x] Métadonnées riches par chunk (type, domaine, source, version, confiance)
+- [x] Reranker cross-encoder sur les top candidats
+- [x] Premier agent spécialisé : **Morrigan-Code** (Python, JS, Bash, SQL, HTML, CSS)
+  - [x] Vérifieur de syntaxe par langage (`ast`, `bash -n`, `node --check`, `sqlparse`, `html.parser`, `tinycss2`)
+  - [x] Corpus dédié code (6 docs FR curatés, auto-tagués `domain=code`)
+- [x] Brigid entraînée (CfC ncps 384→16→6 sur 504 exemples, val_acc ~88 %)
+- [x] Knowledge graph via extraction d'entités (networkx, 267 entités / 430 relations)
 
-### Phase 3 — Génération neuronale
+### Phase 3 — Génération neuronale ✅ *(cœur livré — optimisation latence à suivre)*
 
-- [ ] Scáthach v2 avec backend RWKV ou Llama 3.2 (1-3B Q4)
-- [ ] Mode RAG strict (génération contrôlée par les chunks, pas d'hallucination)
-- [ ] Benchmarks vs LLMs commerciaux sur domaines cibles
-- [ ] Latence cible : < 1s par réponse complète sur CPU
+- [x] Scáthach v2 avec backend **RWKV** (RWKV-6 World 1.6B Q4_K via llama.cpp, CPU)
+- [x] Mode RAG strict (génération ancrée sur chunks Danann + faits KG Ogham ; refus déterministe hors-corpus → **0 hallucination**)
+- [x] Harnais de benchmarks + rapport (`scripts/benchmark.py`, `docs/benchmarks.md`)
+- [ ] Benchmarks vs LLMs commerciaux sur domaines cibles *(à faire)*
+- [ ] Latence cible : < 1s par réponse complète sur CPU — ⚠️ **non atteinte** (p50 ~12.7s sur 1.6B Q4_K CPU contraint, cf. `docs/benchmarks.md`) → chantier d'optimisation (quant plus agressive, modèle plus petit, streaming)
 
 ### Phase 4 — Corpus étendu et compression
 
