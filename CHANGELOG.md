@@ -15,7 +15,20 @@ GitHub sortira sans notes (cf. mémoire `gungnir-release-changelog-gotcha`).
 ## [Non publié]
 
 Phase 2 livrée (reranker, Morrigan-Code 6 langages, Brigid CfC, knowledge
-graph, corpus code). **Phase 3 démarrée** — génération neuronale RWKV.
+graph, corpus code). Phase 3 livrée (génération RWKV + RAG strict +
+streaming). **Phase 4 démarrée** — corpus étendu et compression d'index.
+
+### Ajouté — Phase 4 (corpus étendu et compression)
+- **Quantization vectorielle** (`modules/danann/quantization.py`,
+  pure NumPy) : compresse l'index d'embeddings pour tenir un gros
+  corpus sur PC modeste.
+  - `Int8Index` : quantization scalaire symétrique → **4× plus
+    compact** que float32, recall ≥ 0.9 (quasi sans perte).
+  - `BinaryIndex` : 1 bit/dimension (signe) → **32× plus compact**,
+    recherche par distance de Hamming. Filtre grossier.
+  - `two_stage_search` : filtre binaire élargi (k × 16) → re-score
+    float fin → recall ≥ 0.8 pour 32× moins de mémoire en coarse.
+  - `exact_search` + `recall_at_k` (référence/mesure). +12 tests.
 
 ### Ajouté — Phase 3 (génération neuronale)
 - **Observabilité `/stats`** : An Dagda accumule des compteurs (nb
