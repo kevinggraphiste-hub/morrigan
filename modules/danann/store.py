@@ -20,6 +20,7 @@ from typing import Any, Dict, List, Optional, Set, Tuple
 import numpy as np
 
 from core.types import ModuleInput, ModuleOutput, MorriganModule
+from modules.danann.ann import IVFIndex
 from modules.danann.embeddings import EmbeddingEngine
 from modules.danann.quantization import RERANK_FACTOR, BinaryIndex, Int8Index
 from modules.danann.reranker import CrossEncoderReranker
@@ -70,6 +71,7 @@ class Danann(MorriganModule):
         use_reranker: bool = True,
         reranker_top_k: int = 3,
         compression: str = "none",
+        ann: str = "flat",
     ):
         self.backend = backend
         self.top_k = top_k
@@ -82,6 +84,18 @@ class Danann(MorriganModule):
         if compression not in ("none", "int8", "binary"):
             raise ValueError(f"compression inconnue : {compression!r}")
         self.compression = compression
+
+        # Phase 4 : index ANN sous-linéaire (IVF). "flat" = scan complet
+        # (défaut). "ivf" = recherche par cellules (k-means + probes).
+        if ann not in ("flat", "ivf"):
+            raise ValueError(f"ann inconnu : {ann!r}")
+        if ann == "ivf" and compression != "none":
+            # Combiner IVF + quantization (re-score int8 sur candidats
+            # IVF) est une optimisation future ; on garde la contrainte
+            # explicite plutôt qu'un comportement surprenant.
+            raise ValueError("ann='ivf' requiert compression='none' pour l'instant")
+        self.ann = ann
+        self._ivf: Optional[IVFIndex] = None
 
         # Store en memoire (toujours disponible en fallback)
         self.chunks: List[str] = []
@@ -150,6 +164,28 @@ class Danann(MorriganModule):
             return np.empty(0, dtype=np.int64), np.empty(0, dtype=np.float32)
         return self._int8.search(q, pre_k)
 
+    def _ensure_ann(self) -> None:
+        """Construit l'index IVF (lazy) à partir des embeddings float."""
+        if self.ann == "ivf" and self._ivf is None and self.embeddings is not None:
+            self._ivf = IVFIndex.build(self.embeddings)
+            logger.info(
+                "Danann IVF construit : %d cellules sur %d vecteurs",
+                self._ivf.n_clusters, len(self._ivf),
+            )
+
+    def _candidates_from(
+        self, idx: np.ndarray, base_scores: np.ndarray, query_tokens: Set[str]
+    ) -> List[Tuple[str, float, Dict]]:
+        """Construit la liste (texte, score+boost lexical, meta) triée."""
+        candidates: List[Tuple[str, float, Dict]] = []
+        for j, i in enumerate(idx):
+            score = float(base_scores[j])
+            if query_tokens:
+                score += min(0.30, 0.08 * len(query_tokens & _tokenize(self.chunks[i])))
+            candidates.append((self.chunks[i], score, self.metadata[i]))
+        candidates.sort(key=lambda c: c[1], reverse=True)
+        return candidates
+
     def memory_bytes(self) -> int:
         """Empreinte mémoire de l'index vectoriel (octets)."""
         if self.compression == "none":
@@ -190,6 +226,7 @@ class Danann(MorriganModule):
                 self.embeddings = new_arr
             else:
                 self.embeddings = np.vstack([self.embeddings, new_arr])
+            self._ivf = None  # invalide l'index IVF (sera rebâti au search)
         else:
             # Modes compressés : on quantize le lot et on JETTE le float32.
             # int8 sert de représentation fine (mode int8 + rerank binary).
@@ -253,7 +290,15 @@ class Danann(MorriganModule):
         # score cosine proche mais un seul mentionne explicitement le sujet.
         query_tokens = _tokenize(query)
 
-        if self.compression == "none":
+        if self.compression == "none" and self.ann == "ivf":
+            # Recherche sous-linéaire : IVF gather candidats → boost lexical.
+            self._ensure_ann()
+            if self._ivf is None:
+                return []
+            q = np.asarray(query_emb, dtype=np.float32)
+            cand_idx, base_scores = self._ivf.search(q, pre_k)
+            candidates = self._candidates_from(cand_idx, base_scores, query_tokens)
+        elif self.compression == "none":
             if self.embeddings is None:
                 return []
             query_vec = np.asarray(query_emb, dtype=np.float32)
@@ -274,13 +319,7 @@ class Danann(MorriganModule):
             # puis boost lexical sur cette fenetre uniquement (on ne tokenize
             # pas tout le corpus, ce qui ne tiendrait pas a grande echelle).
             cand_idx, base_scores = self._compressed_coarse(query_emb, pre_k)
-            candidates = []
-            for j, i in enumerate(cand_idx):
-                score = float(base_scores[j])
-                if query_tokens:
-                    score += min(0.30, 0.08 * len(query_tokens & _tokenize(self.chunks[i])))
-                candidates.append((self.chunks[i], score, self.metadata[i]))
-            candidates.sort(key=lambda c: c[1], reverse=True)
+            candidates = self._candidates_from(cand_idx, base_scores, query_tokens)
 
         # Filtrage par domaine
         if domain:
@@ -451,6 +490,7 @@ class Danann(MorriganModule):
             "type": "vector_memory",
             "backend": self.backend,
             "compression": self.compression,
+            "ann": self.ann,
             "reranker": "on" if self.reranker else "off",
             "capabilities": [
                 "semantic_search",
