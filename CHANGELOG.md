@@ -19,6 +19,16 @@ graph, corpus code). Phase 3 livrée (génération RWKV + RAG strict +
 streaming). **Phase 4 démarrée** — corpus étendu et compression d'index.
 
 ### Ajouté — Phase 4 (corpus étendu et compression)
+- **Index ANN IVF sous-linéaire** (`modules/danann/ann.py`, pure
+  NumPy) : partitionne le corpus en cellules (k-means) ; à la requête,
+  ne sonde (`n_probe`) que les cellules les plus proches → recherche
+  **sous-linéaire** sans dépendance native. Recall ≥ 0.8 avec assez de
+  probes ; petit corpus (≤4 cellules) sondé entièrement (exact).
+  `Danann(ann="ivf")` (avec `compression="none"`) : IVF bâti
+  paresseusement, invalidé à chaque `index()`, partage le tableau
+  float (zéro copie). **Choix assumé vs DiskANN/SPANN** (graph-ANN à
+  build C++/Rust lourd) : l'IVF pur-NumPy couvre le retrieval scalable
+  sur matériel modeste sans build natif. +14 tests.
 - **Persistance disque de l'index compressé** (`Danann.save_index` /
   `Danann.load_index`) : sauve `corpus.json` (chunks + metadata +
   config) et `vectors.npz` (codes quantizés). Le chargement
