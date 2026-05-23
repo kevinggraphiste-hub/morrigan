@@ -36,3 +36,6 @@ python-telegram-bot    # Interface Telegram
 pyyaml                 # Configuration YAML
 python-dotenv          # Chargement du .env (token Telegram, cles…)
 asyncio                # Orchestration asynchrone (stdlib)
+
+# Ingestion a l'echelle (Phase 5)
+datasets               # Streaming du dump Wikipedia FR (wikimedia/wikipedia)
