@@ -23,6 +23,8 @@ from typing import List, Optional, Tuple
 
 import numpy as np
 
+from .quantization import Int8Index
+
 
 def _as_2d_f32(embeddings: np.ndarray) -> np.ndarray:
     arr = np.asarray(embeddings, dtype=np.float32)
@@ -66,12 +68,41 @@ def _kmeans(
 
 @dataclass
 class IVFIndex:
-    """Index IVF (inverted file) : centroïdes + listes inversées."""
+    """Index IVF (inverted file) : centroïdes + listes inversées.
+
+    Re-score des candidats :
+      - `vectors` (float32) si présent → exact (mode non compressé) ;
+      - sinon via `int8` (codes quantizés) → re-score **sans matérialiser
+        de float32**, pour combiner IVF + compression (Phase 5).
+    """
 
     centroids: np.ndarray            # (C, D) float32
-    vectors: np.ndarray              # (N, D) float32 (pour re-score exact)
     lists: List[np.ndarray]          # cluster id -> indices des vecteurs
     n_probe: int                     # nb de cellules sondées par défaut
+    vectors: Optional[np.ndarray] = None   # (N, D) float32 (re-score exact)
+    int8: Optional[Int8Index] = None       # re-score quantizé (mode compressé)
+
+    @staticmethod
+    def _partition(
+        arr: np.ndarray,
+        n_clusters: Optional[int],
+        n_probe: Optional[int],
+        n_iter: int,
+        seed: int,
+    ) -> Tuple[np.ndarray, List[np.ndarray], int]:
+        """k-means → (centroïdes, listes inversées, n_probe résolu)."""
+        n = arr.shape[0]
+        # Heuristique standard : ~sqrt(N) cellules, sonder ~1/8 d'entre elles.
+        if n_clusters is None:
+            n_clusters = max(1, min(n, int(np.sqrt(n))))
+        n_clusters = min(n_clusters, n)
+        if n_probe is None:
+            # Petit index → sonde tout (exact, pas de perte de recall ;
+            # l'IVF n'a d'intérêt qu'à grande échelle). Sinon ~1/8.
+            n_probe = n_clusters if n_clusters <= 4 else max(1, n_clusters // 8)
+        centroids, assignments = _kmeans(arr, n_clusters, n_iter, seed)
+        lists = [np.where(assignments == c)[0] for c in range(n_clusters)]
+        return centroids, lists, n_probe
 
     @classmethod
     def build(
@@ -82,27 +113,50 @@ class IVFIndex:
         n_iter: int = 10,
         seed: int = 0,
     ) -> "IVFIndex":
+        """IVF sur des embeddings float32 (re-score exact)."""
         arr = _as_2d_f32(embeddings)
-        n = arr.shape[0]
-        # Heuristique standard : ~sqrt(N) cellules, sonder ~1/8 d'entre elles.
-        if n_clusters is None:
-            n_clusters = max(1, min(n, int(np.sqrt(n))))
-        n_clusters = min(n_clusters, n)
-        if n_probe is None:
-            # Petit index → sonde tout (exact, pas de perte de recall ;
-            # l'IVF n'a d'intérêt qu'à grande échelle). Sinon ~1/8.
-            n_probe = n_clusters if n_clusters <= 4 else max(1, n_clusters // 8)
+        centroids, lists, probe = cls._partition(arr, n_clusters, n_probe, n_iter, seed)
+        return cls(centroids=centroids, lists=lists, n_probe=probe, vectors=arr)
 
-        centroids, assignments = _kmeans(arr, n_clusters, n_iter, seed)
-        lists = [np.where(assignments == c)[0] for c in range(n_clusters)]
-        return cls(centroids=centroids, vectors=arr, lists=lists, n_probe=n_probe)
+    @classmethod
+    def build_from_int8(
+        cls,
+        int8: Int8Index,
+        n_clusters: Optional[int] = None,
+        n_probe: Optional[int] = None,
+        n_iter: int = 10,
+        seed: int = 0,
+    ) -> "IVFIndex":
+        """IVF sur un index int8 — re-score quantizé, **zéro float32 stocké**.
+
+        Les centroïdes sont calculés sur les vecteurs déquantizés à la
+        volée (transitoire, jeté après le k-means) ; on ne conserve que
+        les centroïdes (petits) + les listes + la référence à l'index
+        int8 (déjà détenu par Danann). Combine sous-linéarité et
+        compression.
+        """
+        arr = int8.dequantize()  # float32 transitoire pour le clustering
+        centroids, lists, probe = cls._partition(arr, n_clusters, n_probe, n_iter, seed)
+        return cls(centroids=centroids, lists=lists, n_probe=probe, int8=int8)
 
     def __len__(self) -> int:
-        return self.vectors.shape[0]
+        if self.vectors is not None:
+            return self.vectors.shape[0]
+        return len(self.int8) if self.int8 is not None else 0
 
     @property
     def n_clusters(self) -> int:
         return self.centroids.shape[0]
+
+    def _rescore(self, cand_idx: np.ndarray, q: np.ndarray) -> np.ndarray:
+        """Produit scalaire candidats↔query : float exact, sinon via int8."""
+        if self.vectors is not None:
+            return self.vectors[cand_idx] @ q
+        assert self.int8 is not None, "IVFIndex sans vectors ni int8"
+        codes = self.int8.codes[cand_idx].astype(np.float32)
+        sc = self.int8.scale
+        scale = sc[cand_idx] if isinstance(sc, np.ndarray) else sc
+        return (codes @ q) * scale
 
     def search(
         self, query: np.ndarray, k: int, n_probe: Optional[int] = None
@@ -123,8 +177,8 @@ class IVFIndex:
             return np.empty(0, dtype=np.int64), np.empty(0, dtype=np.float32)
         cand_idx = np.concatenate(parts)
 
-        # Re-score exact des candidats.
-        scores = self.vectors[cand_idx] @ q
+        # Re-score des candidats (float exact si dispo, sinon int8).
+        scores = self._rescore(cand_idx, q)
         kk = min(k, cand_idx.shape[0])
         order = np.argpartition(scores, -kk)[-kk:]
         order = order[np.argsort(scores[order])[::-1]]

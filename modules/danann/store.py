@@ -85,15 +85,12 @@ class Danann(MorriganModule):
             raise ValueError(f"compression inconnue : {compression!r}")
         self.compression = compression
 
-        # Phase 4 : index ANN sous-linéaire (IVF). "flat" = scan complet
+        # Phase 4-5 : index ANN sous-linéaire (IVF). "flat" = scan complet
         # (défaut). "ivf" = recherche par cellules (k-means + probes).
+        # Combinable avec la compression : re-score int8 des candidats IVF
+        # (cf. IVFIndex.build_from_int8), sans matérialiser de float32.
         if ann not in ("flat", "ivf"):
             raise ValueError(f"ann inconnu : {ann!r}")
-        if ann == "ivf" and compression != "none":
-            # Combiner IVF + quantization (re-score int8 sur candidats
-            # IVF) est une optimisation future ; on garde la contrainte
-            # explicite plutôt qu'un comportement surprenant.
-            raise ValueError("ann='ivf' requiert compression='none' pour l'instant")
         self.ann = ann
         self._ivf: Optional[IVFIndex] = None
 
@@ -165,13 +162,19 @@ class Danann(MorriganModule):
         return self._int8.search(q, pre_k)
 
     def _ensure_ann(self) -> None:
-        """Construit l'index IVF (lazy) à partir des embeddings float."""
-        if self.ann == "ivf" and self._ivf is None and self.embeddings is not None:
+        """Construit l'index IVF (lazy) — float si non compressé, sinon int8."""
+        if self.ann != "ivf" or self._ivf is not None:
+            return
+        if self.compression == "none" and self.embeddings is not None:
             self._ivf = IVFIndex.build(self.embeddings)
-            logger.info(
-                "Danann IVF construit : %d cellules sur %d vecteurs",
-                self._ivf.n_clusters, len(self._ivf),
-            )
+        elif self.compression != "none" and self._int8 is not None:
+            self._ivf = IVFIndex.build_from_int8(self._int8)
+        else:
+            return
+        logger.info(
+            "Danann IVF construit : %d cellules sur %d vecteurs",
+            self._ivf.n_clusters, len(self._ivf),
+        )
 
     def _candidates_from(
         self, idx: np.ndarray, base_scores: np.ndarray, query_tokens: Set[str]
@@ -226,7 +229,6 @@ class Danann(MorriganModule):
                 self.embeddings = new_arr
             else:
                 self.embeddings = np.vstack([self.embeddings, new_arr])
-            self._ivf = None  # invalide l'index IVF (sera rebâti au search)
         else:
             # Modes compressés : on quantize le lot et on JETTE le float32.
             # int8 sert de représentation fine (mode int8 + rerank binary).
@@ -240,6 +242,8 @@ class Danann(MorriganModule):
                 else:
                     self._binary.extend(new_arr)
 
+        # Nouveau contenu → l'IVF (s'il existe) est périmé, rebâti au search.
+        self._ivf = None
         self.chunks.extend(texts)
         self.metadata.extend(metadata)
 
@@ -290,8 +294,9 @@ class Danann(MorriganModule):
         # score cosine proche mais un seul mentionne explicitement le sujet.
         query_tokens = _tokenize(query)
 
-        if self.compression == "none" and self.ann == "ivf":
+        if self.ann == "ivf":
             # Recherche sous-linéaire : IVF gather candidats → boost lexical.
+            # Re-score float (non compressé) ou int8 (compressé) selon le mode.
             self._ensure_ann()
             if self._ivf is None:
                 return []
