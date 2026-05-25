@@ -160,6 +160,7 @@ MORRIGAN_TELEGRAM_TOKEN=         # Pour l'interface Telegram
 SUPABASE_URL=                    # Pour la persistance vectorielle (optionnel)
 SUPABASE_KEY=
 HF_TOKEN=                        # Pour éviter le rate limit HuggingFace (optionnel)
+MORRIGAN_INDEX=                  # Dossier d'index compressé à servir (optionnel)
 ```
 
 ---
@@ -207,6 +208,28 @@ réponses. Utile pour valider une modification sans casser les cas connus.
 
 Ingère récursivement tous les `.md` et `.txt` du dossier donné. Backend
 `memory` par défaut, `supabase` pour la persistance.
+
+### Servir un index compressé persisté
+
+Pour servir un gros corpus sans le réembedder à chaque démarrage, construis
+un index compressé sur disque, puis pointe `MORRIGAN_INDEX` dessus :
+
+```bash
+# Corpus local → index int8 sur disque
+.venv/Scripts/python scripts/build_compressed_index.py ^
+    --source data/knowledge --output data/models/index_default
+
+# … ou Wikipédia FR en streaming (Phase 5)
+.venv/Scripts/python scripts/ingest_wikipedia.py --max-articles 5000
+
+# Lancer le CLI (ou le bot) en pointant l'index
+set MORRIGAN_INDEX=data/models/index_default
+.venv/Scripts/python interfaces/cli.py
+```
+
+Le CLI et le bot chargent alors l'index via `Danann.load_index` (RAM
+réduite, zéro réembedding). Si `MORRIGAN_INDEX` est absent ou invalide,
+le runtime retombe sur l'ingestion de `data/knowledge`.
 
 ---
 
