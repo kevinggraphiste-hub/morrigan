@@ -42,10 +42,14 @@ Exemple d'ancrage (top-1, requête « Qu'est-ce que l'algorithmique ? ») :
 - La **1ʳᵉ requête est lente** (lazy-load du modèle d'embeddings pour
   encoder la query + premier scan), les suivantes sont rapides.
 - **Recherche `flat` = O(n)** : à ~38 k chunks c'est encore ~130 ms, mais
-  au-delà de ~100 k chunks il faudra l'ANN IVF (Phase 4). **Limite
-  connue** : `ann="ivf"` requiert `compression="none"` pour l'instant ;
-  combiner IVF + int8 (re-score quantizé sur candidats IVF) est
-  l'optimisation naturelle pour servir un index Wikipedia complet.
+  au-delà la recherche linéaire coûte. **IVF + int8 est désormais
+  disponible** (`Danann(ann="ivf", compression="int8")`) : recherche
+  sous-linéaire **sur index compressé** (cellules k-means sur vecteurs
+  déquantizés à la volée, re-score via codes int8, **zéro float32
+  stocké**). Validé sur cet index : 194 cellules, **~23 % du corpus
+  scanné**, top-1 pertinent. À ~38 k chunks le `flat` reste compétitif
+  (l'IVF paie surtout à plus grande échelle) ; la brique est prête pour
+  un index Wikipédia complet.
 - La RAM de l'**index** est petite (14.7 MB / 38 k chunks) ; le poste
   mémoire dominant au runtime reste le modèle d'embeddings + (si activé)
   la génération RWKV.

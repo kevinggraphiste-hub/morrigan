@@ -126,7 +126,7 @@ Six modules nommés d'après la mythologie celtique :
 
 - **Latence de génération élevée** : un 1.6B sur CPU contraint reste loin de la cible < 1 s (p50 ~12.7 s ; le streaming masque le ressenti avec un 1er token ~1.4 s). Plafond surtout matériel (RAM saturée + CPU U-series).
 - **Pas de zero-shot** : Morrigan ne répond que depuis son corpus. Par design — fallback honnête plutôt qu'hallucination.
-- **Recherche sur très gros index** : l'ingestion Wikipedia à l'échelle est branchée, mesurée et servie au runtime (`MORRIGAN_INDEX`, cf. `docs/ingestion.md`) ; reste à combiner ANN IVF + compression int8 pour dépasser ~100 k chunks sans scan linéaire.
+- **Passage à très grande échelle (Wikipedia complet)** : l'ingestion à l'échelle est branchée, mesurée et servie au runtime (`MORRIGAN_INDEX`, cf. `docs/ingestion.md`), et la recherche **IVF + compression int8** est disponible (sous-linéaire sur index compressé) ; reste à éprouver le tout sur un corpus de plusieurs millions de chunks.
 - **Benchmarks vs LLMs commerciaux** : pas encore réalisés.
 
 ---

@@ -20,6 +20,17 @@ streaming). Phase 4 livrée — corpus étendu et compression d'index.
 **Phase 5 démarrée** — ingestion à l'échelle.
 
 ### Ajouté — Phase 5 (ingestion à l'échelle)
+- **ANN IVF combiné à la compression** (`IVFIndex.build_from_int8`) :
+  `Danann(ann="ivf", compression="int8"|"binary")` est désormais
+  possible (la contrainte `ann="ivf" ⇒ compression="none"` est levée).
+  Les cellules k-means sont calculées sur les vecteurs **déquantizés à
+  la volée** (transitoire, jeté) ; on ne conserve que centroïdes +
+  listes, et le re-score des candidats se fait sur les **codes int8** →
+  **zéro float32 matérialisé**. Recherche sous-linéaire ET compressée.
+  Validé sur l'index Wikipédia réel (37 967 chunks) : 194 cellules,
+  ~23 % du corpus scanné, top-1 pertinent, `vectors=None`. Top-1
+  IVF+int8 == flat float sur requêtes nettes. +4 tests (l'ancien
+  garde-fou « ivf interdit si compressé » est remplacé).
 - **Validation de l'ingestion à l'échelle** (`docs/ingestion.md`) : run
   réel sur 500 articles Wikipédia FR → **37 967 chunks**, index int8
   **14.7 MB (×4.0** vs float32), 27 MB sur disque. **Chargé au runtime
