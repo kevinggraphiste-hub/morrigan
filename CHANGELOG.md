@@ -20,6 +20,17 @@ streaming). Phase 4 livrée — corpus étendu et compression d'index.
 **Phase 5 démarrée** — ingestion à l'échelle.
 
 ### Ajouté — Phase 5 (ingestion à l'échelle)
+- **Index persisté chargé au runtime** (`core/knowledge.build_danann`) :
+  CLI et bot chargent un index compressé sur disque via
+  `Danann.load_index` quand `MORRIGAN_INDEX` (ou `index_path`) pointe
+  vers un dossier valide (`corpus.json` + `vectors.npz`) → gros corpus
+  servi avec RAM réduite, **zéro réembedding** au démarrage. Sinon,
+  fallback gracieux sur l'ingestion de `data/knowledge`. C'est le
+  **consommateur runtime** des index produits par
+  `build_compressed_index.py` / `ingest_wikipedia.py`. Logique
+  centralisée et partagée CLI/bot — corrige au passage un **trou : le
+  CLI n'ingérait rien** (Danann vide → refus en RAG strict).
+  `MORRIGAN_INDEX` documenté dans `.env.example`. +6 tests.
 - **Ingestion Wikipédia FR à l'échelle** (`scripts/ingest_wikipedia.py`) :
   **stream** le dataset `wikimedia/wikipedia` (sans télécharger les
   ~20 Go du dump), chunke les articles, les indexe dans un Danann
