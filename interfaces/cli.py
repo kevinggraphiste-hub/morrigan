@@ -13,9 +13,9 @@ sys.path.insert(0, ".")
 
 from core.dagda import AnDagda
 from core.env import load_env
+from core.knowledge import build_danann
 from modules.brigid.model import Brigid
 from modules.ogham.engine import Ogham
-from modules.danann.store import Danann
 from modules.scathach.generator import Scathach
 from modules.cauldron.memory import Cauldron
 
@@ -48,7 +48,9 @@ async def main() -> None:
     # génération + streaming (fallback template si modèle absent).
     dagda.register_module("brigid", Brigid())
     dagda.register_module("ogham", Ogham())
-    dagda.register_module("danann", Danann())
+    # Danann : index persisté (MORRIGAN_INDEX) si présent, sinon
+    # ingestion de data/knowledge. Cf. core.knowledge.build_danann.
+    dagda.register_module("danann", build_danann())
     dagda.register_module("scathach", Scathach(backend="rwkv"))
     dagda.register_module("cauldron", Cauldron())
 

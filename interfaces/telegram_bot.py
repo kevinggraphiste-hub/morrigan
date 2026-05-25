@@ -14,7 +14,6 @@ import logging
 import os
 import sys
 import time
-from pathlib import Path
 from typing import AsyncIterator, Awaitable, Callable
 
 sys.path.insert(0, ".")
@@ -31,12 +30,11 @@ from telegram.ext import (
 
 from core.dagda import AnDagda
 from core.env import load_env
+from core.knowledge import build_danann
 from modules.brigid.model import Brigid
 from modules.ogham.engine import Ogham
-from modules.danann.store import Danann
 from modules.scathach.generator import Scathach
 from modules.cauldron.memory import Cauldron
-from scripts.ingest_knowledge import ingest_directory
 
 logger = logging.getLogger("morrigan.telegram")
 
@@ -208,22 +206,15 @@ async def _build_dagda() -> tuple[AnDagda, Cauldron]:
 
     dagda.register_module("brigid", Brigid())
     dagda.register_module("ogham", Ogham())
-    dagda.register_module("danann", Danann(backend="memory"))
+    # Danann : index persisté (MORRIGAN_INDEX) si présent, sinon
+    # ingestion de data/knowledge. Cf. core.knowledge.build_danann.
+    dagda.register_module("danann", build_danann())
     # backend RWKV → vraie génération + streaming (fallback template si
     # le modèle GGUF est absent).
     dagda.register_module("scathach", Scathach(backend="rwkv"))
     dagda.register_module("cauldron", cauldron)
 
     await dagda.initialize()
-
-    # Ingestion automatique du corpus
-    knowledge_dir = Path("data/knowledge")
-    if knowledge_dir.exists():
-        danann = dagda.modules["danann"]
-        total = ingest_directory(danann, knowledge_dir)
-        logger.info("Corpus charge : %d chunks depuis %s", total, knowledge_dir)
-    else:
-        logger.warning("Dossier %s introuvable — Danann vide", knowledge_dir)
 
     return dagda, cauldron
 
