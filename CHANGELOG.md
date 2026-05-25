@@ -16,7 +16,24 @@ GitHub sortira sans notes (cf. mémoire `gungnir-release-changelog-gotcha`).
 
 Phase 2 livrée (reranker, Morrigan-Code 6 langages, Brigid CfC, knowledge
 graph, corpus code). Phase 3 livrée (génération RWKV + RAG strict +
-streaming). **Phase 4 démarrée** — corpus étendu et compression d'index.
+streaming). Phase 4 livrée — corpus étendu et compression d'index.
+**Phase 5 démarrée** — ingestion à l'échelle.
+
+### Ajouté — Phase 5 (ingestion à l'échelle)
+- **Ingestion Wikipédia FR à l'échelle** (`scripts/ingest_wikipedia.py`) :
+  **stream** le dataset `wikimedia/wikipedia` (sans télécharger les
+  ~20 Go du dump), chunke les articles, les indexe dans un Danann
+  **compressé** (int8 par défaut, compression Phase 4) et persiste
+  l'index sur disque (rechargé sans réembedder). Filtre les articles
+  trop courts (`MIN_ARTICLE_CHARS`), borne via `--max-articles`,
+  indexation par lots (`--batch`), choix de compression
+  (`none`/`int8`/`binary`). **Tolérance aux pannes** : sur erreur
+  réseau/dataset, le lot en cours est *flushé* puis sauvé (rien n'est
+  perdu) au lieu d'être abandonné. Validé en réel : 5 articles FR →
+  170 chunks, index int8 **×4.0**. +8 tests CI-safe (monkeypatch de
+  `_iter_articles` + faux module `datasets` → zéro réseau).
+- `datasets` ajouté à `requirements.txt` (dépendance Phase 5, utilisée
+  uniquement par le script d'ingestion).
 
 ### Ajouté — Phase 4 (corpus étendu et compression)
 - **Index ANN IVF sous-linéaire** (`modules/danann/ann.py`, pure
