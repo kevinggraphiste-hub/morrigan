@@ -120,12 +120,13 @@ Six modules nommés d'après la mythologie celtique :
 - **Retrieval/classification** : ~50-150 ms par requête (CPU, i5-10210U), empreinte ~300 Mo
 - **Génération RWKV** (1.6B Q4_K, CPU contraint) : ~10-12 tok/s, latence p50 ~12.7 s pour une réponse de quelques phrases — cf. `docs/benchmarks.md`
 - **0 hallucination** : 100 % de refus sur les queries hors-corpus (benchmark)
+- **Ingestion à l'échelle** : 500 articles Wikipédia FR → 37 967 chunks, index int8 14.7 MB (×4.0), **chargé au runtime en 0.29 s** (zéro réembedding) — cf. `docs/ingestion.md`
 
 ### Ce qui ne marche pas encore
 
 - **Latence de génération élevée** : un 1.6B sur CPU contraint reste loin de la cible < 1 s (p50 ~12.7 s ; le streaming masque le ressenti avec un 1er token ~1.4 s). Plafond surtout matériel (RAM saturée + CPU U-series).
 - **Pas de zero-shot** : Morrigan ne répond que depuis son corpus. Par design — fallback honnête plutôt qu'hallucination.
-- **Corpus encore restreint** : l'infra de compression/ingestion à l'échelle est prête (Phase 4), mais l'ingestion massive Wikipedia FR reste à brancher et mesurer.
+- **Recherche sur très gros index** : l'ingestion Wikipedia à l'échelle est branchée, mesurée et servie au runtime (`MORRIGAN_INDEX`, cf. `docs/ingestion.md`) ; reste à combiner ANN IVF + compression int8 pour dépasser ~100 k chunks sans scan linéaire.
 - **Benchmarks vs LLMs commerciaux** : pas encore réalisés.
 
 ---
