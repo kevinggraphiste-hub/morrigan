@@ -20,6 +20,13 @@ streaming). Phase 4 livrée — corpus étendu et compression d'index.
 **Phase 5 démarrée** — ingestion à l'échelle.
 
 ### Ajouté — Phase 5 (ingestion à l'échelle)
+- **Validation de l'ingestion à l'échelle** (`docs/ingestion.md`) : run
+  réel sur 500 articles Wikipédia FR → **37 967 chunks**, index int8
+  **14.7 MB (×4.0** vs float32), 27 MB sur disque. **Chargé au runtime
+  en 0.29 s** (zéro réembedding) et servi via `MORRIGAN_INDEX` ;
+  retrieval ancré (top-1 Wikipedia pertinent), ~130 ms à chaud. Mesures
+  + lecture honnête (build CPU-bound ; `flat` O(n) → ANN IVF à combiner
+  avec int8 au-delà de ~100 k chunks) documentées.
 - **Index persisté chargé au runtime** (`core/knowledge.build_danann`) :
   CLI et bot chargent un index compressé sur disque via
   `Danann.load_index` quand `MORRIGAN_INDEX` (ou `index_path`) pointe
