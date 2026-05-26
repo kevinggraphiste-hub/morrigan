@@ -190,6 +190,25 @@ Commandes disponibles dans le bot :
 - `/reset` — efface la mémoire de conversation
 - `/stats` — statistiques des modules
 
+### API HTTP (FastAPI + SSE)
+
+```bash
+.venv/Scripts/python -m uvicorn interfaces.api:app --host 0.0.0.0 --port 8000
+```
+
+Quatre endpoints :
+
+- `POST /query` — JSON `{"query": "...", "session_id": "..."}` → réponse
+  complète + routage (`query_type`, `modules`, `domain_hint`,
+  `generated_by`, `latency_s`).
+- `POST /query/stream` — même body, réponse **SSE** : un event `data`
+  par fragment de génération, puis un event `done` portant le routage.
+- `GET /health` — `{"status": "ok", "modules": [...]}`.
+- `GET /stats` — observabilité (texte + compteurs JSON).
+
+Le dagda de prod (Brigid + Ogham + Danann via `MORRIGAN_INDEX` ou
+`data/knowledge` + Scáthach RWKV + Cauldron) est composé au démarrage.
+
 ### Test d'intégration
 
 ```bash
@@ -326,10 +345,19 @@ morrigan/
 
 ### Phase 5 — Production
 
-- [ ] API HTTP/gRPC stable
-- [ ] Intégration avec d'autres projets (notamment Gungnir)
-- [ ] Dockerisation complète
-- [ ] Monitoring et observabilité
+- [x] **Ingestion à l'échelle Wikipedia FR** (`scripts/ingest_wikipedia.py`,
+  streaming sans dump local) + **index persisté servi au runtime**
+  (`MORRIGAN_INDEX` → `Danann.load_index`, zéro réembedding au boot) +
+  **IVF combiné à int8** (sous-linéaire ET compressé). Validé sur 500 art →
+  37 967 chunks, chargé en 0.29 s. Cf. `docs/ingestion.md`.
+- [x] **API HTTP FastAPI + SSE** (`interfaces/api.py`) : `POST /query`
+  (JSON) + `POST /query/stream` (SSE, token par token via
+  `process_stream`), `GET /health`, `GET /stats`. Démarrage :
+  `uvicorn interfaces.api:app --host 0.0.0.0 --port 8000`.
+- [ ] Dockerisation complète (Dockerfile CPU + compose, volumes pour
+  modèle GGUF + index + `.env`)
+- [ ] Intégration Gungnir (client HTTP côté Gungnir, loose coupling)
+- [ ] Monitoring et observabilité (Prometheus optionnel)
 
 ---
 

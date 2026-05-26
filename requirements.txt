@@ -39,3 +39,7 @@ asyncio                # Orchestration asynchrone (stdlib)
 
 # Ingestion a l'echelle (Phase 5)
 datasets               # Streaming du dump Wikipedia FR (wikimedia/wikipedia)
+
+# API HTTP (Phase 5)
+fastapi                # API REST par-dessus AnDagda (POST /query + SSE)
+uvicorn[standard]      # Serveur ASGI (production : uvicorn[standard])
