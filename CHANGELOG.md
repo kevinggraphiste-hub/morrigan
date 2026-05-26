@@ -19,6 +19,21 @@ graph, corpus code). Phase 3 livrée (génération RWKV + RAG strict +
 streaming). Phase 4 livrée — corpus étendu et compression d'index.
 **Phase 5 démarrée** — ingestion à l'échelle.
 
+### Ajouté — Phase 5 (mise en production)
+- **API HTTP FastAPI + SSE** (`interfaces/api.py`) : `POST /query`
+  (JSON in/out) renvoie la réponse complète + le routage (type, modules,
+  domain_hint, generated_by, latence). `POST /query/stream` streame la
+  génération **token par token via Server-Sent Events** par-dessus
+  `AnDagda.process_stream` (latence perçue alignée sur la CLI/Telegram),
+  termine par un event `done` portant le routage. `GET /health` liste
+  les modules opérationnels ; `GET /stats` expose le format texte
+  observabilité **et** les compteurs JSON. Dagda de prod composé au
+  startup via le lifespan (Brigid + Ogham + `build_danann` + Scáthach
+  RWKV + Cauldron) ; `create_app(dagda=...)` permet d'injecter un dagda
+  factice pour les tests. Tests via `httpx.AsyncClient` + `ASGITransport`
+  (zéro réseau, CI-safe). Démarrage : `uvicorn interfaces.api:app`.
+  +6 tests. Nouvelles deps : `fastapi`, `uvicorn[standard]`.
+
 ### Ajouté — Phase 5 (ingestion à l'échelle)
 - **ANN IVF combiné à la compression** (`IVFIndex.build_from_int8`) :
   `Danann(ann="ivf", compression="int8"|"binary")` est désormais
