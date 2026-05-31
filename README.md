@@ -209,14 +209,14 @@ Quatre endpoints :
 Le dagda de prod (Brigid + Ogham + Danann via `MORRIGAN_INDEX` ou
 `data/knowledge` + Scáthach RWKV + Cauldron) est composé au démarrage.
 
-### Test d'intégration
+### Tests
 
 ```bash
-.venv/Scripts/python scripts/test_phase1.py
+python -m pytest tests/
 ```
 
-Lance une batterie de 10 requêtes test sur le corpus réel et affiche latences +
-réponses. Utile pour valider une modification sans casser les cas connus.
+Lance la suite complète (orchestration, retrieval, génération, API…). Utile
+pour valider une modification sans casser les cas connus.
 
 ### Ingestion de corpus
 
@@ -275,7 +275,8 @@ morrigan/
 │   └── knowledge/        # Corpus (.md, .txt)
 ├── scripts/
 │   ├── ingest_knowledge.py
-│   ├── test_phase1.py
+│   ├── ingest_wikipedia.py
+│   ├── build_compressed_index.py
 │   ├── train_brigid.py
 │   └── supabase_schema.sql
 ├── config/

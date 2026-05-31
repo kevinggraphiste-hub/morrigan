@@ -8,8 +8,7 @@ sentence-transformers   # Embeddings locaux
 numpy
 
 # Base de donnees & Memoire
-supabase               # Client Supabase (pgvector)
-redis                  # Memoire court terme (optionnel)
+supabase               # Client Supabase (pgvector) — backend optionnel
 
 # Moteur symbolique
 pyDatalog              # Moteur logique symbolique
@@ -17,7 +16,6 @@ networkx               # Graphes de connaissances
 
 # Generation de texte (Phase 1)
 jinja2                 # Templates pour la generation de texte
-markovify              # Chaines de Markov pour la variabilite
 
 # Verifieurs Morrigan-Code (Phase 2)
 sqlparse               # Parser SQL (structure ; cf. SqlVerifier pour limitations)
@@ -35,7 +33,6 @@ python-telegram-bot    # Interface Telegram
 # Configuration & Utilitaires
 pyyaml                 # Configuration YAML
 python-dotenv          # Chargement du .env (token Telegram, cles…)
-asyncio                # Orchestration asynchrone (stdlib)
 
 # Ingestion a l'echelle (Phase 5)
 datasets               # Streaming du dump Wikipedia FR (wikimedia/wikipedia)
