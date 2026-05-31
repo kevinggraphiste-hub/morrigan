@@ -19,6 +19,18 @@ graph, corpus code). Phase 3 livrée (génération RWKV + RAG strict +
 streaming). Phase 4 livrée — corpus étendu et compression d'index.
 **Phase 5 démarrée** — ingestion à l'échelle.
 
+### Supprimé
+- **Dépendances mortes** retirées de `requirements.txt` : `markovify`
+  (jamais importé — Scáthach génère via Jinja2/RWKV, pas de chaîne de
+  Markov), `redis` (aucun usage), et la ligne `asyncio` (stdlib, n'a rien
+  à faire dans les requirements). `supabase` conservé (backend pgvector
+  optionnel, non-défaut).
+- **Scripts smoke pré-pytest** supprimés (`scripts/test_phase1.py`,
+  `scripts/test_pipeline.py`, `scripts/hello_lnn.py`,
+  `scripts/hello_danann.py`, `scripts/hello_ogham.py`) : démos/tests
+  manuels Phase 0 redondants avec la suite `tests/` (31 fichiers). README
+  mis à jour (section « Tests » → `pytest`, arborescence `scripts/`).
+
 ### Corrigé
 - **Embeddings Danann normalisés L2** (`modules/danann/embeddings.py`) :
   `EmbeddingEngine.encode` passe désormais `normalize_embeddings=True`.
