@@ -307,8 +307,11 @@ class Danann(MorriganModule):
             if self.embeddings is None:
                 return []
             query_vec = np.asarray(query_emb, dtype=np.float32)
-            norms = np.linalg.norm(self.embeddings, axis=1) * np.linalg.norm(query_vec)
-            scores = np.dot(self.embeddings, query_vec) / (norms + 1e-10)
+            # Embeddings et query sont L2-normalises (cf. EmbeddingEngine.
+            # encode) → le produit scalaire EST le cosinus. Plus besoin de
+            # recalculer les normes du corpus a chaque requete. Coherent avec
+            # les chemins int8/binary/IVF qui font deja un dot brut.
+            scores = self.embeddings @ query_vec
             if query_tokens:
                 boost = np.zeros(len(self.chunks), dtype=np.float32)
                 for i, chunk in enumerate(self.chunks):

@@ -19,6 +19,18 @@ graph, corpus code). Phase 3 livrée (génération RWKV + RAG strict +
 streaming). Phase 4 livrée — corpus étendu et compression d'index.
 **Phase 5 démarrée** — ingestion à l'échelle.
 
+### Corrigé
+- **Embeddings Danann normalisés L2** (`modules/danann/embeddings.py`) :
+  `EmbeddingEngine.encode` passe désormais `normalize_embeddings=True`.
+  Tout le module (quantization int8/binary, ANN IVF, `store` mode `none`)
+  suppose des vecteurs de norme 1 pour assimiler produit scalaire et
+  cosinus, mais l'encodeur ne normalisait pas — biaisant **silencieusement**
+  le ranking RAG vers les chunks de grande norme dans les chemins
+  compressés, et désalignant Danann de Brigid (qui normalisait déjà).
+  Le mode `none` de `store.search` est simplifié en conséquence (produit
+  scalaire direct, plus de recalcul des normes du corpus à chaque requête).
+  +1 test garde-fou (`test_embeddings_are_l2_normalized`).
+
 ### Ajouté — Phase 5 (mise en production)
 - **API HTTP FastAPI + SSE** (`interfaces/api.py`) : `POST /query`
   (JSON in/out) renvoie la réponse complète + le routage (type, modules,

@@ -47,5 +47,12 @@ class EmbeddingEngine:
             logger.error("Impossible de charger le modèle d'embeddings")
             return []
 
-        embeddings = self.model.encode(texts, show_progress_bar=False)
+        # normalize_embeddings=True → norme L2 = 1 par vecteur. Tout le
+        # module Danann (store, quantization int8/binary, ann IVF) suppose
+        # cette normalisation : le produit scalaire vaut alors le cosinus.
+        # Aligne aussi Danann sur modules/brigid/embedder.py (même modèle
+        # MiniLM partagé, qui normalise déjà).
+        embeddings = self.model.encode(
+            texts, show_progress_bar=False, normalize_embeddings=True
+        )
         return embeddings.tolist()
