@@ -6,17 +6,64 @@ des resultats des autres modules.
 Phase 2 : Backend RWKV (0.19B-1.5B) pour une vraie generation.
 """
 
+import asyncio
 import logging
 import re
 import unicodedata
 from pathlib import Path
-from typing import Any, AsyncIterator, Dict, List, Optional, Set
+from typing import (
+    Any,
+    AsyncIterator,
+    Callable,
+    Dict,
+    Iterator,
+    List,
+    Optional,
+    Set,
+)
 
 from jinja2 import Environment, FileSystemLoader, select_autoescape
 
 from core.types import ModuleInput, ModuleOutput, MorriganModule
 
 logger = logging.getLogger("morrigan.scathach")
+
+
+async def _aiter_in_thread(
+    make_iter: Callable[[], Iterator[str]]
+) -> AsyncIterator[str]:
+    """Pompe un générateur synchrone *bloquant* dans un thread et relaie ses
+    morceaux en async via une queue — pour ne PAS bloquer l'event loop avec
+    l'inférence llama.cpp (cf. audit F2). Le générateur est construit DANS le
+    thread (`make_iter()`) pour que l'ouverture du modèle soit aussi offloadée.
+    Les exceptions du producteur sont relayées au consommateur.
+    """
+    loop = asyncio.get_running_loop()
+    queue: asyncio.Queue = asyncio.Queue()  # non bornée : flux fini (max_tokens)
+    _DONE = object()
+
+    def _produce() -> None:
+        try:
+            for item in make_iter():
+                loop.call_soon_threadsafe(queue.put_nowait, item)
+        except BaseException as exc:  # relayée côté consommateur
+            loop.call_soon_threadsafe(queue.put_nowait, exc)
+        finally:
+            loop.call_soon_threadsafe(queue.put_nowait, _DONE)
+
+    fut = loop.run_in_executor(None, _produce)
+    try:
+        while True:
+            item = await queue.get()
+            if item is _DONE:
+                break
+            if isinstance(item, BaseException):
+                raise item
+            yield item
+    finally:
+        # Attend la fin réelle du thread : le travail CPU compte jusqu'au bout
+        # (le sémaphore de l'API reste tenu tant que la génération tourne).
+        await fut
 
 # Stopwords minimal pour detecter les tokens "rares" de la query
 _STOPWORDS: Set[str] = {
@@ -135,9 +182,13 @@ class Scathach(MorriganModule):
             response = self._render_code_verification(input.query, previous)
         else:
             response = None
-            # Tentative RWKV si le backend le demande.
+            # Tentative RWKV si le backend le demande. L'inférence (et le
+            # retrieval qu'elle déclenche) est bloquante → offload hors de
+            # l'event loop pour ne pas geler l'API (audit F2).
             if self.backend in ("rwkv", "auto"):
-                rwkv_response = self._generate_rwkv(input.query, previous)
+                rwkv_response = await asyncio.to_thread(
+                    self._generate_rwkv, input.query, previous
+                )
                 if rwkv_response is not None:
                     response = rwkv_response
                     generated_by = "rwkv"
@@ -231,11 +282,21 @@ class Scathach(MorriganModule):
             return
 
         if self.backend in ("rwkv", "auto"):
-            context = self._rwkv_context(input.query, previous)
+            # _rwkv_context déclenche le retrieval (embeddings) → bloquant.
+            context = await asyncio.to_thread(
+                self._rwkv_context, input.query, previous
+            )
             if context is not None:
                 try:
-                    for piece in self._get_rwkv().answer_stream(
-                        input.query, context=context or None, strict=self.strict_rag
+                    backend = self._get_rwkv()
+                    # answer_stream est un générateur synchrone bloquant : on
+                    # le pompe dans un thread pour ne pas geler l'event loop.
+                    async for piece in _aiter_in_thread(
+                        lambda: backend.answer_stream(
+                            input.query,
+                            context=context or None,
+                            strict=self.strict_rag,
+                        )
                     ):
                         yield piece
                     self.last_generated_by = "rwkv"
