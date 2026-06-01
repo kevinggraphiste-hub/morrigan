@@ -19,6 +19,29 @@ graph, corpus code). Phase 3 livrée (génération RWKV + RAG strict +
 streaming). Phase 4 livrée — corpus étendu et compression d'index.
 **Phase 5 démarrée** — ingestion à l'échelle.
 
+### Sécurité — durcissement de l'API HTTP (lot 1/2)
+Suite à l'audit du 2026-05-29, durcissement de `interfaces/api.py`
+(la couche HTTP ; l'offload de l'inférence hors event-loop suivra) :
+- **Concurrence bornée** : un sémaphore limite les générations RWKV
+  simultanées (CPU-bound, coûteuses) ; au-delà → **HTTP 503** plutôt
+  qu'une file d'attente illimitée. Configurable via
+  `MORRIGAN_API_MAX_CONCURRENT` (défaut 2).
+- **Bornes d'entrée (anti-DoS)** : `query` plafonnée
+  (`MORRIGAN_API_MAX_QUERY_CHARS`, défaut 4000) et `session_id` bornée en
+  longueur + charset (`^[A-Za-z0-9._-]+$`) → rejet **422**.
+- **SSE robuste** : la génération s'**arrête si le client se déconnecte**
+  (`request.is_disconnected()`) au lieu de continuer dans le vide.
+- **Erreurs non divulguantes** : message générique renvoyé au client
+  (plus de `str(exc)` exposant chemins/détails internes) ; le détail est
+  loggé côté serveur. `/query` non-stream encapsule aussi ses erreurs en
+  500 générique.
+- **Auth optionnelle par clé API** : si `MORRIGAN_API_KEY` est défini,
+  `/query`, `/query/stream` et `/stats` exigent l'en-tête `X-API-Key`
+  (→ 401 sinon). `/health` reste ouvert (sonde de vivacité).
+- **Bind 127.0.0.1 par défaut** (`main()`) : exposer sur le réseau devient
+  un choix explicite (`MORRIGAN_API_HOST=0.0.0.0`). Variables documentées
+  dans `.env.example`. +4 tests (longueur, charset, clé API, 503).
+
 ### Supprimé
 - **Dépendances mortes** retirées de `requirements.txt` : `markovify`
   (jamais importé — Scáthach génère via Jinja2/RWKV, pas de chaîne de
