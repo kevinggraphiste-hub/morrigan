@@ -19,6 +19,24 @@ graph, corpus code). Phase 3 livrée (génération RWKV + RAG strict +
 streaming). Phase 4 livrée — corpus étendu et compression d'index.
 **Phase 5 démarrée** — ingestion à l'échelle.
 
+### Sécurité — inférence hors event-loop (lot 2/2)
+Corrige le défaut **F2** de l'audit : l'inférence RWKV (synchrone, llama.cpp)
+était exécutée dans la boucle asyncio → une seule génération **gelait toute
+l'API** (`/health` compris, sonde Docker incluse).
+- **Offload systématique** : `Scathach.process` exécute la génération
+  bloquante via `asyncio.to_thread` ; `Scathach.stream` pompe le générateur
+  synchrone `answer_stream` dans un thread et relaie les tokens en async via
+  une queue (helper `_aiter_in_thread`). Le retrieval bloquant (embeddings)
+  est lui aussi offloadé. L'event loop reste réactif pendant la génération.
+- **Sécurité thread du modèle** : `RWKVBackend` sérialise désormais l'accès
+  au contexte llama.cpp (unique, non concurrent-safe) via un
+  `threading.Lock` autour de `generate`/`generate_stream` — l'inférence peut
+  être appelée depuis plusieurs threads sans corruption (les générations se
+  sérialisent, ce qui est correct sur un modèle CPU mono-contexte).
+- Comportement fonctionnel **inchangé** (mêmes morceaux, même ordre, mêmes
+  fallbacks) pour la CLI, Telegram et l'API. +3 tests (`_aiter_in_thread` :
+  ordre, propagation d'exception, exécution hors thread principal).
+
 ### Sécurité — durcissement de l'API HTTP (lot 1/2)
 Suite à l'audit du 2026-05-29, durcissement de `interfaces/api.py`
 (la couche HTTP ; l'offload de l'inférence hors event-loop suivra) :

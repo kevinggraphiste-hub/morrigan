@@ -19,6 +19,7 @@ ses templates Jinja2 — pas de crash.
 from __future__ import annotations
 
 import logging
+import threading
 from pathlib import Path
 from typing import Iterator, List, Optional
 
@@ -64,6 +65,11 @@ class RWKVBackend:
         self.n_threads = n_threads
         self._llm = None
         self._load_error: Optional[str] = None
+        # llama.cpp partage un unique contexte : `self._llm(...)` n'est PAS
+        # sûr en appels concurrents. On sérialise l'inférence (de toute façon
+        # CPU-bound mono-contexte) pour pouvoir l'appeler depuis des threads
+        # (offload hors event-loop côté Scáthach).
+        self._infer_lock = threading.Lock()
 
     # ─── Chargement ─────────────────────────────────────────────
 
@@ -184,7 +190,8 @@ class RWKVBackend:
         if seed is not None:
             kwargs["seed"] = seed
 
-        out = self._llm(prompt, **kwargs)  # type: ignore[misc]
+        with self._infer_lock:
+            out = self._llm(prompt, **kwargs)  # type: ignore[misc]
         return out["choices"][0]["text"].strip()
 
     def answer(
@@ -231,10 +238,13 @@ class RWKVBackend:
         if seed is not None:
             kwargs["seed"] = seed
 
-        for chunk in self._llm(prompt, **kwargs):  # type: ignore[misc]
-            piece = chunk["choices"][0]["text"]
-            if piece:
-                yield piece
+        # Le lock couvre toute l'itération : un seul stream à la fois sur le
+        # contexte llama.cpp (libéré quand le générateur s'épuise ou est fermé).
+        with self._infer_lock:
+            for chunk in self._llm(prompt, **kwargs):  # type: ignore[misc]
+                piece = chunk["choices"][0]["text"]
+                if piece:
+                    yield piece
 
     def answer_stream(
         self,

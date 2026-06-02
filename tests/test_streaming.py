@@ -14,12 +14,57 @@ sys.path.insert(0, ".")
 
 from core.dagda import AnDagda
 from core.types import ModuleInput, ModuleOutput
-from modules.scathach.generator import Scathach
+from modules.scathach.generator import Scathach, _aiter_in_thread
 from modules.scathach.rwkv_backend import RWKVBackend
 
 
 async def _collect(agen) -> List[str]:
     return [x async for x in agen]
+
+
+# ─── _aiter_in_thread : bridge thread→async (offload F2) ──────────────
+
+
+def test_aiter_in_thread_preserves_order():
+    def gen() -> Iterator[str]:
+        for x in ["a", "b", "c"]:
+            yield x
+
+    assert asyncio.run(_collect(_aiter_in_thread(gen))) == ["a", "b", "c"]
+
+
+def test_aiter_in_thread_propagates_exception():
+    def gen() -> Iterator[str]:
+        yield "a"
+        raise ValueError("boom")
+
+    async def _run() -> List[str]:
+        out: List[str] = []
+        async for piece in _aiter_in_thread(gen):
+            out.append(piece)
+        return out
+
+    raised = None
+    try:
+        asyncio.run(_run())
+    except ValueError as e:
+        raised = e
+    assert raised is not None and "boom" in str(raised)
+
+
+def test_aiter_in_thread_runs_off_event_loop():
+    """Le générateur synchrone tourne bien dans un autre thread (pas le loop)."""
+    import threading
+
+    main_thread = threading.get_ident()
+    seen: List[int] = []
+
+    def gen() -> Iterator[str]:
+        seen.append(threading.get_ident())
+        yield "x"
+
+    asyncio.run(_collect(_aiter_in_thread(gen)))
+    assert seen and seen[0] != main_thread
 
 
 # ─── RWKVBackend.generate_stream / answer_stream ──────────────────
