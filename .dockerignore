@@ -1,0 +1,25 @@
+# Garde le contexte de build léger et ne bake aucun secret ni artefact lourd.
+
+# Secrets — fournis au runtime via env_file, jamais dans l'image.
+.env
+
+# Données lourdes — montées en volume (GGUF + index + runtime), pas bakées.
+data/
+
+# Environnements virtuels locaux.
+.venv/
+.venv-uv/
+
+# Git & CI.
+.git/
+.github/
+
+# Caches & artefacts de test.
+__pycache__/
+*.pyc
+.pytest_cache/
+tests/
+
+# Divers.
+*.md
+docs/
