@@ -38,6 +38,7 @@ from fastapi import Depends, FastAPI, Header, HTTPException, Request
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
+from core.__version__ import __version__
 from core.dagda import AnDagda
 
 logger = logging.getLogger("morrigan.api")
@@ -145,7 +146,7 @@ def create_app(
 
     app = FastAPI(
         title="Morrigan API",
-        version="0.1",
+        version=__version__,
         description=(
             "API HTTP par-dessus AnDagda. POST /query (JSON), "
             "POST /query/stream (SSE), GET /health, GET /stats."

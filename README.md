@@ -113,7 +113,7 @@ Six modules nommés d'après la mythologie celtique :
 - Retrieval hybride Danann : cosine + boost lexical + reranker cross-encoder, filtrage par domaine, garde anti-faux-positif
 - Observabilité `/stats` (CLI + Telegram) : routage, probas Brigid, generated_by, latence
 - Interfaces CLI + Telegram (streaming), `.env` auto-load, backends Danann branchables (memory / Supabase pgvector), scripts d'ingestion
-- **304 tests** (pytest), 5 workflows CI (tests, version-sync, release, brigid-train, kg-build)
+- **335 tests** (pytest), 5 workflows CI (tests, version-sync, release, brigid-train, kg-build)
 
 ### Performances mesurées
 

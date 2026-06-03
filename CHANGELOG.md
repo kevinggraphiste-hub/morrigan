@@ -14,6 +14,8 @@ GitHub sortira sans notes (cf. mémoire `gungnir-release-changelog-gotcha`).
 
 ## [Non publié]
 
+## [0.5.0] - 2026-06-03
+
 Phase 2 livrée (reranker, Morrigan-Code 6 langages, Brigid CfC, knowledge
 graph, corpus code). Phase 3 livrée (génération RWKV + RAG strict +
 streaming). Phase 4 livrée — corpus étendu et compression d'index.
