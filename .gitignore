@@ -34,6 +34,10 @@ data/models/*.npz
 # Index Danann compressés (dossiers contenant corpus.json + vectors.npz)
 data/models/index*/
 
+# Docs externes téléchargées/générées pour le corpus code (Phase 2B) :
+# bundle texte Python + rendus pydoc — régénérables via scripts/ingest_code_docs.py
+data/code_docs/
+
 # Env supplémentaires
 .venv-uv/
 .venv-*/
