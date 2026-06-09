@@ -99,7 +99,7 @@ Six modules nommés d'après la mythologie celtique :
 
 ---
 
-## État actuel (Phases 1-4 livrées)
+## État actuel (Phases 1-4 livrées, Phase 5 en cours)
 
 ### Ce qui marche
 
@@ -113,7 +113,7 @@ Six modules nommés d'après la mythologie celtique :
 - Retrieval hybride Danann : cosine + boost lexical + reranker cross-encoder, filtrage par domaine, garde anti-faux-positif
 - Observabilité `/stats` (CLI + Telegram) : routage, probas Brigid, generated_by, latence
 - Interfaces CLI + Telegram (streaming), `.env` auto-load, backends Danann branchables (memory / Supabase pgvector), scripts d'ingestion
-- **335 tests** (pytest), 5 workflows CI (tests, version-sync, release, brigid-train, kg-build)
+- **346 tests** (pytest), 6 workflows CI (tests, version-sync, release, brigid-train, kg-build, docker-build)
 
 ### Performances mesurées
 
@@ -355,8 +355,10 @@ morrigan/
   (JSON) + `POST /query/stream` (SSE, token par token via
   `process_stream`), `GET /health`, `GET /stats`. Démarrage :
   `uvicorn interfaces.api:app --host 0.0.0.0 --port 8000`.
-- [ ] Dockerisation complète (Dockerfile CPU + compose, volumes pour
-  modèle GGUF + index + `.env`)
+- [x] **Dockerisation** (Dockerfile CPU `python:3.12-slim` non-root, torch
+  CPU-only ; `docker-compose.yml` `8100:8000`, modèle GGUF + index + `.env`
+  en volumes ; CI `docker-build.yml` build + smoke d'import). Test runtime
+  `/health` reporté au déploiement VPS.
 - [ ] Intégration Gungnir (client HTTP côté Gungnir, loose coupling)
 - [ ] Monitoring et observabilité (Prometheus optionnel)
 
