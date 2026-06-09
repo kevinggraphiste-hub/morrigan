@@ -90,7 +90,7 @@ Six modules nommés d'après la mythologie celtique :
 
 - **Python 3.11+**
 - **PyTorch** + **ncps** (Liquid Neural Networks / CfC)
-- **sentence-transformers** (`all-MiniLM-L6-v2`, 384-D, ~80 Mo)
+- **sentence-transformers** (`intfloat/multilingual-e5-small`, 384-D, ~470 Mo, 50+ langues — retrieval cross-lingue FR↔EN)
 - **pyDatalog** (raisonnement symbolique)
 - **Jinja2** (templates de génération — Phase 1)
 - **Supabase pgvector** (persistance optionnelle)
@@ -114,7 +114,7 @@ Six modules nommés d'après la mythologie celtique :
 - Observabilité `/stats` (CLI + Telegram) : routage, probas Brigid, generated_by, latence
 - Interfaces CLI + Telegram (streaming), `.env` auto-load, backends Danann branchables (memory / Supabase pgvector), scripts d'ingestion
 - **API OpenAI-compatible** (`/v1/chat/completions`, `/v1/models`) : branchable tel quel comme provider custom dans un client OpenAI (dont Gungnir)
-- **356 tests** (pytest), 6 workflows CI (tests, version-sync, release, brigid-train, kg-build, docker-build)
+- **360 tests** (pytest), 6 workflows CI (tests, version-sync, release, brigid-train, kg-build, docker-build)
 
 ### Performances mesurées
 
@@ -150,8 +150,8 @@ python -m venv .venv
 pip install -r requirements.txt
 ```
 
-Le premier lancement télécharge `sentence-transformers/all-MiniLM-L6-v2` depuis
-HuggingFace (~80 Mo).
+Le premier lancement télécharge `intfloat/multilingual-e5-small` depuis
+HuggingFace (~470 Mo).
 
 ### Variables d'environnement
 
@@ -356,11 +356,11 @@ morrigan/
 - [ ] Ingestion Wikipedia FR à grande échelle — pipeline prêt
   (`build_compressed_index.py`, ingestion incrémentale) ; reste à
   brancher une source Wikipedia et mesurer à l'échelle.
-- [ ] Matryoshka embeddings — **non retenu** : nécessiterait de
-  changer l'embedder partagé (MiniLM), ce qui casserait le checkpoint
-  Brigid et les index existants. Le 2-étages **binary → int8** en est
-  l'équivalent fonctionnel (recherche grossière puis fine) sans
-  changer de modèle.
+- [ ] Matryoshka embeddings — **non retenu** : la troncature de
+  dimension imposerait un embedder Matryoshka dédié et un réentraînement
+  Brigid + rebuild des index à chaque ajustement. Le 2-étages
+  **binary → int8** en est l'équivalent fonctionnel (recherche grossière
+  puis fine) sans toucher au modèle.
 - [x] Cible « < 5 Go corpus » : atteignable via compression (×4 à ×32)
   + persistance disque ; validé sur le corpus actuel, à confirmer à
   l'échelle Wikipedia.

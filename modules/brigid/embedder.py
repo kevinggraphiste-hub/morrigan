@@ -1,19 +1,25 @@
 """
 BRIGID — Encodeur sémantique des queries.
 
-Wrapper minimal autour de `sentence-transformers/all-MiniLM-L6-v2` (déjà
-utilisé par Danann → cache HF partagé, pas de modèle supplémentaire à
-télécharger). Produit des embeddings 384-D normalisés.
+Wrapper minimal autour de `intfloat/multilingual-e5-small` (déjà utilisé par
+Danann → cache partagé, pas de modèle supplémentaire à charger en RAM). Produit
+des embeddings 384-D normalisés.
 
-Singleton : on évite de recharger le modèle (≈ 80 Mo) à chaque appel.
-La 1re instanciation peut prendre 1-3 s (chargement) ; les suivantes
-sont quasi-instantanées.
+Famille e5 : les requêtes sont préfixées `query: ` avant encodage (cf.
+`core.embedder_cache.text_prompt_prefix`). Brigid ne voit que des énoncés
+de type requête → toujours le préfixe `query:`, appliqué de façon identique à
+l'entraînement (`scripts/train_brigid.py` encode via ce même embedder) et à
+l'inférence → cohérence checkpoint garantie.
+
+Singleton : on évite de recharger le modèle à chaque appel. La 1re
+instanciation peut prendre 1-3 s (chargement) ; les suivantes sont
+quasi-instantanées.
 
 Cohérence checkpoint ↔ inférence : tant que le nom de modèle reste
 `EMBED_MODEL_NAME`, train et inference produisent les mêmes embeddings
 et le checkpoint reste valable. Changer ce nom invalide les
-checkpoints existants — bumper la version du modèle dans
-`brigid_cfc.pt` si on le fait.
+checkpoints existants (garde-fou dans `model.py::load_checkpoint`) —
+réentraîner Brigid après le changement.
 """
 
 from __future__ import annotations
@@ -23,9 +29,9 @@ from typing import List, Sequence
 
 logger = logging.getLogger("morrigan.brigid.embedder")
 
-# Modèle d'embedding partagé avec Danann. NE PAS changer sans bump de
-# version du checkpoint Brigid (incompatibilité de représentation).
-EMBED_MODEL_NAME = "sentence-transformers/all-MiniLM-L6-v2"
+# Modèle d'embedding partagé avec Danann. NE PAS changer sans réentraîner
+# Brigid (incompatibilité de représentation → checkpoint invalidé).
+EMBED_MODEL_NAME = "intfloat/multilingual-e5-small"
 EMBED_DIM = 384
 
 
@@ -65,10 +71,16 @@ class IntentEmbedder:
         self._ensure_loaded()
         import torch  # noqa: PLC0415
 
+        from core.embedder_cache import text_prompt_prefix  # noqa: PLC0415
+
+        # e5 : préfixe `query:` (les entrées de Brigid sont des requêtes).
+        prefix = text_prompt_prefix(EMBED_MODEL_NAME, "query")
+        prepared = [prefix + t for t in texts] if prefix else list(texts)
+
         # convert_to_tensor=True → renvoie déjà un torch.Tensor.
         # normalize_embeddings=True → norme L2 = 1 par vecteur.
         embeddings = self._model.encode(  # type: ignore[union-attr]
-            list(texts),
+            prepared,
             convert_to_tensor=True,
             normalize_embeddings=True,
             show_progress_bar=False,

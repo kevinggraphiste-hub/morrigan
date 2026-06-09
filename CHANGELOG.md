@@ -14,6 +14,30 @@ GitHub sortira sans notes (cf. mémoire `gungnir-release-changelog-gotcha`).
 
 ## [Non publié]
 
+### Changé — embedder multilingue e5 (retrieval cross-lingue FR↔EN)
+Bascule de `all-MiniLM-L6-v2` (anglo-centré) vers `intfloat/multilingual-e5-small`
+(384-D, 50+ langues). Objectif : préparer un corpus de docs **code** majoritairement
+anglophone interrogeable en **français** — une requête FR retrouve désormais un
+passage EN pertinent (le retrieval cross-lingue de MiniLM était trop faible).
+- **Préfixes e5** `query:` / `passage:` (asymétriques, requis par la famille e5)
+  centralisés dans `core.embedder_cache.text_prompt_prefix` et appliqués à
+  l'identique à l'indexation (Danann `kind="passage"`), à la recherche
+  (`kind="query"`) et à Brigid (toujours `query:`) → cohérence index ↔ requête ↔
+  checkpoint. Modèle hors famille e5 → préfixe vide (comportement inchangé).
+- **Brigid réentraîné** sur le nouvel embedder : **val accuracy 0.971** (vs 0.882
+  avec MiniLM ; `reasoning`, l'ancien point faible, passe 0.71 → 0.88). Le garde-fou
+  `load_checkpoint` invalide automatiquement l'ancien checkpoint (changement
+  d'`embed_model_name`). L'instance e5 reste **mutualisée** Danann ↔ Brigid (1 seule
+  en RAM).
+- Dimension inchangée (384) → architecture CfC de Brigid intacte.
+- Garde-fous : `tests/test_multilingual_retrieval.py` (FR→EN sur passage réseau et
+  code) ; test compression recadré en **recall@2** (un codec lossy ×4/×32 peut
+  intervertir deux voisins quasi-identiques — e5 cluster plus serré — sans les
+  éjecter du haut du classement). **360 tests.**
+- ⚠️ L'index Wikipédia persisté `data/models/index_wiki` a été bâti avec MiniLM →
+  **à rebâtir** avec e5 avant de le resservir (le petit corpus `data/knowledge` est
+  ré-encodé au boot, donc déjà à jour).
+
 ### Ajouté — surface API OpenAI-compatible (branchement Gungnir)
 Nouveau module `interfaces/openai_compat.py`, **purement additif** (les routes
 natives `/query` sont intactes ; retirer l'appel `add_openai_compat_routes`

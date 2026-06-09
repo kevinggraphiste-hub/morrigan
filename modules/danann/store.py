@@ -66,7 +66,7 @@ class Danann(MorriganModule):
         backend: str = "memory",
         supabase_url: str = "",
         supabase_key: str = "",
-        embedding_model: str = "all-MiniLM-L6-v2",
+        embedding_model: str = "intfloat/multilingual-e5-small",
         top_k: int = 5,
         use_reranker: bool = True,
         reranker_top_k: int = 3,
@@ -209,7 +209,8 @@ class Danann(MorriganModule):
             return 0
 
         self._ensure_embeddings_loaded()
-        new_embeddings = self.embedding_engine.encode(texts)
+        # kind="passage" (défaut) : documents indexés → préfixe e5 `passage:`.
+        new_embeddings = self.embedding_engine.encode(texts, kind="passage")
 
         if metadata is None:
             metadata = [{} for _ in texts]
@@ -273,7 +274,8 @@ class Danann(MorriganModule):
         """
         k = top_k or self.top_k
         self._ensure_embeddings_loaded()
-        query_emb = self.embedding_engine.encode([query])[0]
+        # kind="query" : préfixe e5 `query:` (asymétrique vs `passage:` à l'index).
+        query_emb = self.embedding_engine.encode([query], kind="query")[0]
 
         # Backend Supabase
         if self.backend == "supabase" and self.supabase:
@@ -438,7 +440,9 @@ class Danann(MorriganModule):
 
         d = cls(
             compression=corpus["compression"],
-            embedding_model=corpus.get("embedding_model", "all-MiniLM-L6-v2"),
+            embedding_model=corpus.get(
+                "embedding_model", "intfloat/multilingual-e5-small"
+            ),
             **kwargs,
         )
         d.chunks = list(corpus["chunks"])

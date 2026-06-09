@@ -51,7 +51,7 @@ sa tâche :
 
 ## Stack
 
-Python 3.12 · PyTorch + ncps (LNN) · sentence-transformers (MiniLM 384-D) ·
+Python 3.12 · PyTorch + ncps (LNN) · sentence-transformers (e5-small multilingue 384-D) ·
 llama-cpp-python (RWKV Q4, CPU) · networkx · pyDatalog · Jinja2 ·
 datasets (streaming Wikipédia) · Supabase pgvector (optionnel) ·
 python-telegram-bot
@@ -83,8 +83,8 @@ Le tout en CPU local, sans appeler un seul LLM externe.
 
 ## Compteurs sympas
 
-- **356 tests pytest verts**, 0 xfailed
-- **~43 PRs mergées**, CI verte de bout en bout
+- **360 tests pytest verts**, 0 xfailed
+- **~44 PRs mergées**, CI verte de bout en bout
 - **Déterminisme parfait local ↔ CI** sur l'entraînement Brigid (seed 42)
 - Gros corpus encyclopédique réel tenu **sur PC modeste** : index
   Wikipédia int8 chargé en 0.29 s, RAM réduite ×4

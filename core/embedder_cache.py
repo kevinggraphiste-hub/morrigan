@@ -38,6 +38,25 @@ def _canonical(model_name: str) -> str:
     return model_name if "/" in model_name else f"sentence-transformers/{model_name}"
 
 
+def text_prompt_prefix(model_name: str, kind: str) -> str:
+    """Préfixe d'instruction exigé par certains modèles avant l'encodage.
+
+    La famille **e5** (intfloat/*-e5-*) est entraînée avec des préfixes
+    asymétriques : `query: ` pour une requête, `passage: ` pour un document
+    indexé. Les omettre dégrade fortement le retrieval. Les modèles sans
+    convention de préfixe (MiniLM…) renvoient une chaîne vide → comportement
+    inchangé. `kind` ∈ {"query", "passage"}.
+
+    Helper partagé Danann/Brigid (module *leaf*) : la cohérence du préfixe entre
+    indexation, recherche ET entraînement Brigid passe par ce point unique.
+    """
+    base = _canonical(model_name).split("/")[-1].lower()
+    is_e5 = base.startswith("e5-") or "-e5-" in base
+    if not is_e5:
+        return ""
+    return "query: " if kind == "query" else "passage: "
+
+
 def get_sentence_transformer(model_name: str, device: str = "cpu"):
     """Renvoie une instance SentenceTransformer partagée (chargée une seule fois
     par couple nom canonique/device). Lève si le chargement échoue — c'est à
