@@ -15,11 +15,14 @@ class EmbeddingEngine:
     """
     Moteur d'embeddings local.
 
-    Modèle par défaut : all-MiniLM-L6-v2 (384 dims, ~80MB, CPU).
-    Alternatives : BGE-small-en-v1.5, nomic-embed-text.
+    Modèle par défaut : intfloat/multilingual-e5-small (384 dims, ~470MB, CPU,
+    50+ langues). Choisi pour le retrieval **cross-lingue** : une requête FR
+    retrouve un passage EN (corpus de docs code majoritairement anglophones).
+    Famille e5 → préfixes `query:`/`passage:` appliqués via `kind` (cf.
+    core.embedder_cache.text_prompt_prefix). Mutualisé avec Brigid.
     """
 
-    def __init__(self, model_name: str = "all-MiniLM-L6-v2"):
+    def __init__(self, model_name: str = "intfloat/multilingual-e5-small"):
         self.model_name = model_name
         self.model = None
         logger.info("EmbeddingEngine créé (modèle: %s, non chargé)", model_name)
@@ -37,8 +40,14 @@ class EmbeddingEngine:
         except Exception as e:
             logger.error("Erreur chargement modèle: %s", e)
 
-    def encode(self, texts: List[str]) -> List[List[float]]:
-        """Encode une liste de textes en vecteurs."""
+    def encode(self, texts: List[str], kind: str = "passage") -> List[List[float]]:
+        """Encode une liste de textes en vecteurs.
+
+        `kind` ∈ {"passage", "query"} : sélectionne le préfixe e5 (cf.
+        `text_prompt_prefix`). Indexation → "passage" (défaut) ; encodage d'une
+        requête de recherche → "query". Sans modèle e5, le préfixe est vide et
+        `kind` n'a aucun effet.
+        """
         if self.model is None:
             logger.warning("Modèle non chargé, appel de load()")
             self.load()
@@ -47,11 +56,17 @@ class EmbeddingEngine:
             logger.error("Impossible de charger le modèle d'embeddings")
             return []
 
+        from core.embedder_cache import text_prompt_prefix
+
+        prefix = text_prompt_prefix(self.model_name, kind)
+        if prefix:
+            texts = [prefix + t for t in texts]
+
         # normalize_embeddings=True → norme L2 = 1 par vecteur. Tout le
         # module Danann (store, quantization int8/binary, ann IVF) suppose
         # cette normalisation : le produit scalaire vaut alors le cosinus.
         # Aligne aussi Danann sur modules/brigid/embedder.py (même modèle
-        # MiniLM partagé, qui normalise déjà).
+        # partagé, qui normalise déjà).
         embeddings = self.model.encode(
             texts, show_progress_bar=False, normalize_embeddings=True
         )
