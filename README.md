@@ -113,7 +113,8 @@ Six modules nommés d'après la mythologie celtique :
 - Retrieval hybride Danann : cosine + boost lexical + reranker cross-encoder, filtrage par domaine, garde anti-faux-positif
 - Observabilité `/stats` (CLI + Telegram) : routage, probas Brigid, generated_by, latence
 - Interfaces CLI + Telegram (streaming), `.env` auto-load, backends Danann branchables (memory / Supabase pgvector), scripts d'ingestion
-- **346 tests** (pytest), 6 workflows CI (tests, version-sync, release, brigid-train, kg-build, docker-build)
+- **API OpenAI-compatible** (`/v1/chat/completions`, `/v1/models`) : branchable tel quel comme provider custom dans un client OpenAI (dont Gungnir)
+- **356 tests** (pytest), 6 workflows CI (tests, version-sync, release, brigid-train, kg-build, docker-build)
 
 ### Performances mesurées
 
@@ -196,7 +197,7 @@ Commandes disponibles dans le bot :
 .venv/Scripts/python -m uvicorn interfaces.api:app --host 0.0.0.0 --port 8000
 ```
 
-Quatre endpoints :
+Endpoints natifs :
 
 - `POST /query` — JSON `{"query": "...", "session_id": "..."}` → réponse
   complète + routage (`query_type`, `modules`, `domain_hint`,
@@ -206,8 +207,28 @@ Quatre endpoints :
 - `GET /health` — `{"status": "ok", "modules": [...]}`.
 - `GET /stats` — observabilité (texte + compteurs JSON).
 
+Surface **OpenAI-compatible** (cf. `interfaces/openai_compat.py`) — pour
+brancher Morrigan dans n'importe quel client OpenAI sans adaptation :
+
+- `POST /v1/chat/completions` — `{model, messages:[...], stream}` standard.
+  Le **dernier message `user`** sert de requête ; le champ optionnel `user`
+  sert de `session_id` (mémoire Cauldron). Non-stream et stream (chunks
+  `chat.completion.chunk` + `[DONE]`).
+- `GET /v1/models` — un seul modèle (`morrigan`).
+- Auth : `Authorization: Bearer <MORRIGAN_API_KEY>` (ou `X-API-Key`).
+
 Le dagda de prod (Brigid + Ogham + Danann via `MORRIGAN_INDEX` ou
 `data/knowledge` + Scáthach RWKV + Cauldron) est composé au démarrage.
+
+#### Brancher Morrigan dans Gungnir (provider custom)
+
+Aucune modification de code Gungnir : Réglages → Clés API → **Custom**, puis
+`name=morrigan`, `base_url=http://localhost:8100`, une clé API au choix (=
+`MORRIGAN_API_KEY`), `default_model=morrigan`. Gungnir détecte un provider
+inconnu avec `base_url` → bascule sur son `OpenAIProvider` et appelle
+`POST {base_url}/v1/chat/completions`. ⚠️ En **RAG strict**, Morrigan répond
+« je ne sais pas » hors de son corpus : la richesse des réponses suit la
+taille du corpus indexé.
 
 ### Tests
 
@@ -359,7 +380,10 @@ morrigan/
   CPU-only ; `docker-compose.yml` `8100:8000`, modèle GGUF + index + `.env`
   en volumes ; CI `docker-build.yml` build + smoke d'import). Test runtime
   `/health` reporté au déploiement VPS.
-- [ ] Intégration Gungnir (client HTTP côté Gungnir, loose coupling)
+- [x] **Surface OpenAI-compatible** (`/v1/chat/completions` + `/v1/models`,
+  `interfaces/openai_compat.py`) : Morrigan se branche tel quel comme provider
+  custom dans Gungnir (aucun code Gungnir à toucher). Validation usage à suivre.
+- [ ] Intégration Gungnir côté UX (skill/tool dédié, au-delà du provider brut)
 - [ ] Monitoring et observabilité (Prometheus optionnel)
 
 ---
