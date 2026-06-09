@@ -328,21 +328,37 @@ class KnowledgeGraph:
             ))
         for edge in payload.get("edges", []):
             s, o = edge["subject"], edge["object"]
+            # Les nodes des arêtes peuvent ne pas figurer dans `entities`
+            # (extracteur qui add_relation sans add_entity préalable) :
+            # on les crée en placeholder, comme le fait add_relation.
+            for ent_id in (s, o):
+                if ent_id not in kg._graph:
+                    kg.add_entity(Entity(id=ent_id, label=ent_id))
+
+            if not edge.get("predicates"):
+                continue
+            edge_data = kg._graph.edges[(s, o)] if kg._graph.has_edge(s, o) else None
+            if edge_data is None:
+                preds: Dict[str, Dict[str, Any]] = {}
+                kg._graph.add_edge(s, o, predicates=preds)
+            else:
+                preds = edge_data.setdefault("predicates", {})
+
+            # Restauration verbatim des agrégats (count/confidence/sources) :
+            # surtout PAS un replay `add_relation × count` — ça couplait à tort
+            # la liste des sources au compteur et perdait silencieusement toute
+            # source au-delà de `count` (et O(count) par arête au chargement).
             for pred, info in edge.get("predicates", {}).items():
-                # info peut contenir count + confidence + sources
-                sources = info.get("sources") or []
-                conf = info.get("confidence", 1.0)
-                # On re-applique add_relation count fois pour préserver
-                # le compteur (chaque appel incrémente count de 1).
-                for i in range(info.get("count", 1)):
-                    src = sources[i] if i < len(sources) else None
-                    kg.add_relation(Relation(
-                        subject_id=s,
-                        predicate=pred,
-                        object_id=o,
-                        confidence=conf,
-                        source=src,
-                    ))
+                sources = list(info.get("sources") or [])
+                # Invariant maintenu par add_relation : count >= nb sources
+                # distinctes. On le garantit aussi pour les fichiers externes
+                # où `count` serait absent ou sous-estimé.
+                count = max(int(info.get("count", 1)), len(sources), 1)
+                preds[pred] = {
+                    "count": count,
+                    "confidence": info.get("confidence", 1.0),
+                    "sources": sources,
+                }
         return kg
 
     def save(self, path: Path) -> Path:
