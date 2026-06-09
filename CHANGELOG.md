@@ -14,6 +14,33 @@ GitHub sortira sans notes (cf. mémoire `gungnir-release-changelog-gotcha`).
 
 ## [Non publié]
 
+### Corrigé — 4 bugs de correction (backlog audit)
+- **`KnowledgeGraph.from_dict` non idempotent** : l'ancien chargement rejouait
+  `add_relation` `count` fois, ce qui couplait à tort les sources au compteur et
+  **perdait toute source au-delà de `count`** (et coûtait O(count) par arête).
+  Désormais restauration **verbatim** des agrégats (`count`/`confidence`/
+  `sources`), avec invariant `count >= nb sources`. Round-trip stable.
+- **`domain_hint` arbitraire en cas d'égalité** (`AnDagda._detect_domain_hint`) :
+  à égalité de hits, le `max()` tranchait selon l'ordre du dict (arbitraire) ; ce
+  domaine douteux servait ensuite de filtre dur. Une égalité ⇒ domaine **ambigu**
+  ⇒ on ne contraint plus le retrieval (`None`).
+- **Filtre domaine/type Danann en best-effort** : si le filtre vidait entièrement
+  la fenêtre de candidats (hint erroné ou corpus sans ce domaine), le RAG strict
+  produisait un **faux « je ne sais pas »**. On retombe maintenant sur les
+  candidats non filtrés plutôt que de dégrader le rappel à zéro.
+- **`process_stream` n'enregistrait pas la requête (/stats) si le stream levait** :
+  passage en `try/finally` → la latence/le compteur sont toujours consignés, même
+  quand la génération plante en cours de route (`process()` non-stream catchait
+  déjà).
+- +`tests/test_correction_bugs.py` : un garde-fou par bug (8 tests).
+
+### Performance — MiniLM mutualisé entre Danann et Brigid
+Danann (`EmbeddingEngine`) et Brigid (`IntentEmbedder`) chargeaient chacun leur
+propre `SentenceTransformer(all-MiniLM-L6-v2)` → le même modèle **2× en RAM**.
+Nouveau `core/embedder_cache.py` (cache process, double-checked locking, noms
+canoniques normalisés) → **une seule instance** partagée. Levier RAM #1 sur
+machine modeste.
+
 ### Docker — image CPU + compose pour l'API
 Conteneurisation de l'API HTTP (Phase 5, production) :
 - **`Dockerfile`** single-stage `python:3.12-slim`, non-root. **torch CPU-only**

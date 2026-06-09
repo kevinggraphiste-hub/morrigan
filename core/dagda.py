@@ -178,10 +178,15 @@ class AnDagda:
         if not scores:
             return None
 
-        # Retourne le domaine avec le plus de hits
-        best = max(scores, key=scores.get)  # type: ignore
-        # Seuil : au moins 1 keyword match
-        return best if scores[best] >= 1 else None
+        # Retourne le domaine avec le plus de hits — mais SEULEMENT s'il est
+        # unique. En cas d'égalité (ex : 1 mot "ia" + 1 mot "code"), le
+        # `max(scores, key=...)` historique tranchait selon l'ordre du dict
+        # (arbitraire) ; ce domaine douteux servait ensuite de filtre côté
+        # Danann et pouvait vider la fenêtre → faux « je ne sais pas ».
+        # Égalité ⇒ domaine ambigu ⇒ on ne contraint pas le retrieval.
+        best_score = max(scores.values())
+        winners = [d for d, s in scores.items() if s == best_score]
+        return winners[0] if len(winners) == 1 else None
 
     # Phase 2 : detection de fence markdown ```lang ... ``` (signal fort code).
     _CODE_FENCE_PATTERN = re.compile(r"```\w*\s*\n", re.MULTILINE)
@@ -465,25 +470,28 @@ class AnDagda:
                 accumulated[name] = ModuleOutput(result=None, errors=[str(e)])
 
         # 2. Dernier module : streamé s'il le supporte.
+        #    try/finally : si le stream lève en cours de route, on enregistre
+        #    quand même la requête pour /stats (sinon les requêtes qui plantent
+        #    en génération disparaissaient des compteurs, faussant la latence
+        #    moyenne et le total — `process()` non-stream, lui, catch déjà).
         module_input.context["previous_results"] = accumulated
         last_mod = self.modules.get(last_name)
-
-        if last_mod is None:
-            yield "[Morrigan] Aucun module n'a pu traiter cette requête."
-        elif hasattr(last_mod, "stream"):
-            async for piece in last_mod.stream(module_input):  # type: ignore[attr-defined]
-                yield piece
-        else:
-            out = await last_mod.process(module_input)
-            yield str(out.result) if out.success and out.result is not None else \
-                "[Morrigan] Aucun module n'a pu traiter cette requête."
-
-        elapsed = time.time() - start_time
-        logger.info("Réponse (stream) en %.2fs", elapsed)
-
-        # Observabilité (/stats) : generated_by exposé par Scáthach.
-        gen_by = getattr(last_mod, "last_generated_by", None) if last_mod else None
-        self._record_query(routing, elapsed, gen_by)
+        try:
+            if last_mod is None:
+                yield "[Morrigan] Aucun module n'a pu traiter cette requête."
+            elif hasattr(last_mod, "stream"):
+                async for piece in last_mod.stream(module_input):  # type: ignore[attr-defined]
+                    yield piece
+            else:
+                out = await last_mod.process(module_input)
+                yield str(out.result) if out.success and out.result is not None else \
+                    "[Morrigan] Aucun module n'a pu traiter cette requête."
+        finally:
+            elapsed = time.time() - start_time
+            logger.info("Réponse (stream) en %.2fs", elapsed)
+            # Observabilité (/stats) : generated_by exposé par Scáthach.
+            gen_by = getattr(last_mod, "last_generated_by", None) if last_mod else None
+            self._record_query(routing, elapsed, gen_by)
 
     def _assemble_response(
         self,

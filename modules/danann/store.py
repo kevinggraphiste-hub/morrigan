@@ -329,21 +329,38 @@ class Danann(MorriganModule):
             cand_idx, base_scores = self._compressed_coarse(query_emb, pre_k)
             candidates = self._candidates_from(cand_idx, base_scores, query_tokens)
 
-        # Filtrage par domaine
+        # Filtrage par domaine / type — en **best-effort** : le domain_hint
+        # de Dagda est une heuristique mots-clés, pas une vérité. Si le filtre
+        # vide entièrement la fenêtre de candidats (corpus sans chunk de ce
+        # domaine, ou hint erroné), on **retombe sur les candidats non filtrés**
+        # plutôt que de provoquer un faux « je ne sais pas » en RAG strict.
+        # Le filtre n'améliore donc la précision que quand il reste pertinent ;
+        # il ne peut jamais dégrader le rappel à zéro.
         if domain:
-            candidates = [
+            filtered = [
                 (text, score, meta)
                 for text, score, meta in candidates
                 if meta.get("domain") == domain
             ]
+            if filtered:
+                candidates = filtered
+            else:
+                logger.debug(
+                    "Filtre domaine '%s' sans candidat → repli sur non-filtré", domain
+                )
 
-        # Filtrage par type
         if chunk_type:
-            candidates = [
+            filtered = [
                 (text, score, meta)
                 for text, score, meta in candidates
                 if meta.get("type") == chunk_type
             ]
+            if filtered:
+                candidates = filtered
+            else:
+                logger.debug(
+                    "Filtre type '%s' sans candidat → repli sur non-filtré", chunk_type
+                )
 
         # Phase 2 : reranking cross-encoder sur les candidats
         if self.reranker and candidates:
