@@ -14,6 +14,28 @@ GitHub sortira sans notes (cf. mémoire `gungnir-release-changelog-gotcha`).
 
 ## [Non publié]
 
+### Ajouté — corpus de documentation code (Phase 2B)
+`scripts/ingest_code_docs.py` construit un index RAG de docs **code** à partir de
+deux sources : le **bundle texte officiel Python** (`docs.python.org`, téléchargé
+une fois, licence PSF — auto-suit la version stable via la page de download) et
+l'introspection **`pydoc`** de modules stdlib curatés. Corpus EN **interrogeable
+en FR** grâce à l'embedder multilingue (Phase 2A).
+- **Chunker code-aware** : préserve indentation et sauts de ligne (le chunker
+  markdown générique écrase les espaces → détruirait le code), découpe par section
+  (titres soulignés Sphinx-text) en gardant les blocs entiers, sous ~512 tokens e5.
+- Métadonnées par chunk : `domain=code`, `language=python`, `source`, `origin`,
+  `section` → filtrage + citation.
+- Sortie : index Danann **int8 persisté** (`data/models/index_code/`), servi au
+  runtime via `MORRIGAN_INDEX`. Build scopé par défaut (tutorial+howto+faq + 20
+  modules pydoc → ~2000 chunks) ; `--categories ...,library,...` pour le corpus
+  complet de la stdlib.
+- Docs téléchargées + index **gitignorés** (régénérables). +`tests/test_ingest_
+  code_docs.py` (10 tests CI-safe : chunker, pydoc stdlib, parsing bundle sur
+  fixtures — zéro réseau). **370 tests.**
+- Validé runtime : requêtes Python **en français** ramènent des chunks Python
+  pertinents (list comprehension, try/except, …). L'affinage qualité (reranker,
+  seuils RAG, ajout de `library/`) relève de la Phase 2D.
+
 ### Changé — embedder multilingue e5 (retrieval cross-lingue FR↔EN)
 Bascule de `all-MiniLM-L6-v2` (anglo-centré) vers `intfloat/multilingual-e5-small`
 (384-D, 50+ langues). Objectif : préparer un corpus de docs **code** majoritairement
