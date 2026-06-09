@@ -44,15 +44,14 @@ class IntentEmbedder:
         """Charge le modèle au 1er usage (lazy)."""
         if self._model is not None:
             return
-        # Import retardé : sentence-transformers tire torch (gros) ; on
-        # n'a pas envie de payer ça à l'import du module.
-        from sentence_transformers import SentenceTransformer  # noqa: PLC0415
+        # Modèle mutualisé avec Danann via le cache partagé → une seule
+        # instance MiniLM en RAM (cf. core/embedder_cache.py). Import retardé :
+        # sentence-transformers tire torch (gros), on ne paie pas ça à l'import
+        # du module. Force CPU : cohérent avec la philo Morrigan ("tourne sur PC
+        # modeste") et évite les CUDA errors sur machines de dev hétérogènes.
+        from core.embedder_cache import get_sentence_transformer  # noqa: PLC0415
 
-        logger.info("Chargement de l'embedder %s", EMBED_MODEL_NAME)
-        # Force CPU : cohérent avec la philo Morrigan ("tourne sur PC
-        # modeste"), et évite les CUDA errors quand torch détecte un
-        # GPU sans kernels compatibles (machines de dev hétérogènes).
-        IntentEmbedder._model = SentenceTransformer(EMBED_MODEL_NAME, device="cpu")
+        IntentEmbedder._model = get_sentence_transformer(EMBED_MODEL_NAME, device="cpu")
 
     def encode(self, texts: Sequence[str]):
         """Encode une liste de textes en un tensor (N, EMBED_DIM).
