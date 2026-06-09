@@ -1,27 +1,50 @@
-# Morrigan — Docker Compose
-# Phase 0 : configuration de base
-
-version: "3.8"
+# Morrigan API — Docker Compose (Phase 5, production CPU)
+#
+# Un seul service : l'API HTTP (interfaces/api.py) par-dessus AnDagda.
+# Le bot Telegram reste une interface séparée (ajout futur en 2e service
+# si besoin).
+#
+# Modèle GGUF + index montés en volume (pas bakés). Le port hôte est 8100
+# car Gungnir possède déjà le 8000 hôte ; le conteneur écoute sur 8000.
 
 services:
-  morrigan:
+  morrigan-api:
     build: .
-    container_name: morrigan
+    image: morrigan-api
+    container_name: morrigan-api
     restart: unless-stopped
-    volumes:
-      - ./config:/app/config
-      - ./data:/app/data
-    environment:
-      - SUPABASE_URL=${SUPABASE_URL:-}
-      - SUPABASE_KEY=${SUPABASE_KEY:-}
-      - TELEGRAM_TOKEN=${TELEGRAM_TOKEN:-}
-    ports:
-      - "8080:8080"  # API REST (Phase 2)
 
-  # Redis pour la mémoire court terme (optionnel)
-  # redis:
-  #   image: redis:7-alpine
-  #   container_name: morrigan-redis
-  #   restart: unless-stopped
-  #   ports:
-  #     - "6379:6379"
+    # Secrets optionnels (MORRIGAN_API_KEY, HF_TOKEN…). `required: false` →
+    # ne casse pas si .env est absent (l'API tourne sans auth par défaut).
+    env_file:
+      - path: .env
+        required: false
+
+    environment:
+      MORRIGAN_API_HOST: "0.0.0.0"
+      MORRIGAN_API_PORT: "8000"
+      MORRIGAN_INDEX: "data/models/index_wiki"
+
+    ports:
+      - "8100:8000"   # hôte 8100 → conteneur 8000 (Gungnir possède le 8000 hôte)
+
+    volumes:
+      - ./data:/app/data        # GGUF + index_wiki (pas bakés)
+      - ./config:/app/config
+      - hf-cache:/home/appuser/.cache/huggingface  # cache MiniLM persistant
+
+    healthcheck:
+      # urllib (stdlib) → pas besoin d'installer curl dans l'image slim.
+      # /health est volontairement ouvert (pas d'auth) = sonde de vivacité.
+      test:
+        - CMD
+        - python
+        - -c
+        - "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:8000/health').status==200 else 1)"
+      interval: 30s
+      timeout: 5s
+      start_period: 90s   # le boot charge RWKV 1.6B + index en RAM
+      retries: 3
+
+volumes:
+  hf-cache:

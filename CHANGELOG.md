@@ -14,6 +14,28 @@ GitHub sortira sans notes (cf. mémoire `gungnir-release-changelog-gotcha`).
 
 ## [Non publié]
 
+### Docker — image CPU + compose pour l'API
+Conteneurisation de l'API HTTP (Phase 5, production) :
+- **`Dockerfile`** single-stage `python:3.12-slim`, non-root. **torch CPU-only**
+  installé avant `requirements.txt` (pip voit `torch>=2.0` satisfait → pas de
+  libs CUDA, ~plusieurs Go évités) ; llama-cpp-python CPU via l'index abetlen
+  déjà dans `requirements.txt`. Aucune compilation native → pas de multi-stage.
+  Lancement `python -m interfaces.api`, bind `0.0.0.0:8000` en interne.
+- **`docker-compose.yml`** réécrit (le stub Phase 0 était cassé) : service
+  unique `morrigan-api`, port **`8100:8000`** (Gungnir possède le 8000 hôte),
+  modèle GGUF + `index_wiki` montés en **volumes** (pas bakés),
+  `MORRIGAN_INDEX` servi au boot, cache HuggingFace persistant (volume nommé),
+  `env_file` optionnel, healthcheck `/health` en `urllib` (pas de `curl` dans
+  l'image) avec `start_period` 90s (boot = chargement RWKV 1.6B + index).
+  Suppression de `version: "3.8"`, du stub redis et de `TELEGRAM_TOKEN`.
+- **`.dockerignore`** : exclut `.env` (secrets non bakés), `data/` (monté en
+  volume), venvs, `.git`, caches — contexte de build léger.
+- **`.github/workflows/docker-build.yml`** : CI qui build l'image sur les
+  runners GitHub + smoke d'import (torch CPU / llama-cpp / app) + `docker
+  compose config` — valide la partie risquée du build sans Docker local ni
+  VPS, à chaque changement des fichiers Docker. Le test runtime `/health`
+  (modèle GGUF requis) est reporté au déploiement VPS.
+
 ## [0.5.0] - 2026-06-03
 
 Phase 2 livrée (reranker, Morrigan-Code 6 langages, Brigid CfC, knowledge
