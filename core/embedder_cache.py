@@ -1,0 +1,58 @@
+"""
+Cache partagé de modèles SentenceTransformer.
+
+Mutualise le bi-encodeur MiniLM entre Danann (mémoire vectorielle) et Brigid
+(classification d'intent) : sans ce cache, chacun chargeait sa propre instance
+→ **deux fois le même modèle en RAM**. Sur une machine RAM-saturée c'est le
+levier #1 (cf. mémoire perf Morrigan).
+
+Module *leaf* : il n'importe que `sentence_transformers` (en lazy), jamais
+`modules.*` ni `core.*` → pas de cycle d'import même si `modules/` l'importe.
+
+Partage l'objet modèle (les poids torch + tokenizer), pas la logique d'`encode`
+de chaque appelant : Danann renvoie des listes, Brigid des tensors. L'inférence
+PyTorch (forward read-only) est sûre en accès concurrent → pas de lock à l'usage,
+seulement au chargement (double-checked locking, l'API offload en threads).
+"""
+
+from __future__ import annotations
+
+import logging
+import threading
+
+logger = logging.getLogger("morrigan.embedder_cache")
+
+# (nom canonique, device) -> instance SentenceTransformer
+_CACHE: dict[tuple[str, str], object] = {}
+_LOCK = threading.Lock()
+
+
+def _canonical(model_name: str) -> str:
+    """Unifie les alias d'un même modèle pour ne charger qu'une instance.
+
+    `all-MiniLM-L6-v2` et `sentence-transformers/all-MiniLM-L6-v2` désignent le
+    MÊME modèle (sentence-transformers préfixe l'org quand le nom est nu). On
+    préfixe ici pour que Danann (`all-MiniLM-L6-v2`) et Brigid
+    (`sentence-transformers/all-MiniLM-L6-v2`) tombent sur la même entrée.
+    """
+    return model_name if "/" in model_name else f"sentence-transformers/{model_name}"
+
+
+def get_sentence_transformer(model_name: str, device: str = "cpu"):
+    """Renvoie une instance SentenceTransformer partagée (chargée une seule fois
+    par couple nom canonique/device). Lève si le chargement échoue — c'est à
+    l'appelant de gérer la dégradation gracieuse s'il en veut une."""
+    key = (_canonical(model_name), device)
+    model = _CACHE.get(key)
+    if model is not None:
+        return model
+    with _LOCK:
+        # Re-check sous le lock : un autre thread a pu charger entre-temps.
+        model = _CACHE.get(key)
+        if model is None:
+            from sentence_transformers import SentenceTransformer  # noqa: PLC0415
+
+            logger.info("Chargement SentenceTransformer %s (device=%s)", key[0], device)
+            model = SentenceTransformer(key[0], device=device)
+            _CACHE[key] = model
+    return model
