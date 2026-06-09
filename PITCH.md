@@ -83,8 +83,8 @@ Le tout en CPU local, sans appeler un seul LLM externe.
 
 ## Compteurs sympas
 
-- **318 tests pytest verts**, 0 xfailed
-- **~30 PRs mergées**, CI verte de bout en bout
+- **346 tests pytest verts**, 0 xfailed
+- **~42 PRs mergées**, CI verte de bout en bout
 - **Déterminisme parfait local ↔ CI** sur l'entraînement Brigid (seed 42)
 - Gros corpus encyclopédique réel tenu **sur PC modeste** : index
   Wikipédia int8 chargé en 0.29 s, RAM réduite ×4
@@ -92,11 +92,13 @@ Le tout en CPU local, sans appeler un seul LLM externe.
 
 ## Et après ? (Phase 5 — production)
 
-- API HTTP/gRPC stable pour exposer Morrigan à d'autres projets
-- Intégration avec l'écosystème (notamment Gungnir)
-- Dockerisation complète + monitoring/observabilité
-- Recherche ANN sur index compressé (IVF + int8) pour servir un index
-  Wikipédia complet sans scan linéaire
+Déjà livré : **API HTTP FastAPI + SSE**, **ANN IVF + int8** (index compressé
+servi sans scan linéaire), **Dockerisation** (image CPU + compose, validée en
+CI). Reste :
+
+- Intégration avec l'écosystème (notamment Gungnir, client HTTP loose-coupling)
+- Déploiement VPS (runner self-hosted + cadrage RAM)
+- Monitoring/observabilité (Prometheus optionnel)
 - Benchmarks vs LLMs commerciaux sur domaines ciblés (réseau, code,
   mytho celte 🌿)
 
