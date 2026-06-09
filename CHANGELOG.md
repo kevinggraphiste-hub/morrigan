@@ -14,6 +14,23 @@ GitHub sortira sans notes (cf. mémoire `gungnir-release-changelog-gotcha`).
 
 ## [Non publié]
 
+### Ajouté — surface API OpenAI-compatible (branchement Gungnir)
+Nouveau module `interfaces/openai_compat.py`, **purement additif** (les routes
+natives `/query` sont intactes ; retirer l'appel `add_openai_compat_routes`
+suffit à le désactiver). Permet à tout client OpenAI standard — dont **Gungnir**
+via son provider custom — de parler à Morrigan sans adaptation côté client.
+- `POST /v1/chat/completions` : format Chat Completions standard (non-stream +
+  stream SSE `chat.completion.chunk` → `[DONE]`). Le **dernier message `user`**
+  devient la requête Morrigan ; le champ optionnel `user` → `session_id`
+  (mémoire Cauldron) ; `usage` estimé (mots, le modèle local n'est pas tokenisé
+  ici). Le cœur **RAG strict est préservé** (hors corpus → « je ne sais pas »).
+- `GET /v1/models` : liste à un seul modèle (`morrigan`).
+- Auth : `Authorization: Bearer <MORRIGAN_API_KEY>` (ce qu'envoie le SDK OpenAI)
+  **ou** `X-API-Key`, et réutilise le sémaphore de concurrence existant.
+- Branchement Gungnir documenté (README) : provider custom, **zéro code Gungnir**.
+- +`tests/test_openai_compat.py` (10 tests : shape non-stream/stream, auth
+  Bearer + X-API-Key, extraction dernier message user, `/v1/models`).
+
 ### Corrigé — 4 bugs de correction (backlog audit)
 - **`KnowledgeGraph.from_dict` non idempotent** : l'ancien chargement rejouait
   `add_relation` `count` fois, ce qui couplait à tort les sources au compteur et

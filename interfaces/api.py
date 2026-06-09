@@ -3,10 +3,17 @@ API HTTP pour Morrigan — FastAPI + SSE.
 
 Expose AnDagda par-dessus HTTP. Endpoints :
 
-  POST /query          JSON in/out — réponse complète
-  POST /query/stream   SSE — token par token via `dagda.process_stream`
-  GET  /health         vivacité + liste des modules (toujours ouvert)
-  GET  /stats          observabilité (format texte + compteurs JSON)
+  POST /query                 JSON in/out — réponse complète
+  POST /query/stream          SSE — token par token via `dagda.process_stream`
+  GET  /health                vivacité + liste des modules (toujours ouvert)
+  GET  /stats                 observabilité (format texte + compteurs JSON)
+  POST /v1/chat/completions   surface OpenAI-compatible (non-stream + stream)
+  GET  /v1/models             liste OpenAI-compatible (un seul modèle)
+
+La surface `/v1/*` (cf. `interfaces/openai_compat.py`) permet à un client
+OpenAI standard — dont **Gungnir** via son provider custom — de parler à
+Morrigan sans adaptation côté client. Elle est additive : retirer l'appel à
+`add_openai_compat_routes` n'affecte pas les routes natives `/query`.
 
 Lancement :
     python -m interfaces.api          # bind 127.0.0.1:8000 par défaut
@@ -226,6 +233,13 @@ def create_app(
                 yield (f"event: done\ndata: {done}\n\n").encode("utf-8")
 
         return StreamingResponse(event_stream(), media_type="text/event-stream")
+
+    # Surface OpenAI-compatible (POST /v1/chat/completions, GET /v1/models) —
+    # additive, enveloppe process/process_stream sans toucher aux routes natives.
+    # Import local pour garder l'import du module léger (cf. _build_default_dagda).
+    from interfaces.openai_compat import add_openai_compat_routes
+
+    add_openai_compat_routes(app, expected_key=expected_key)
 
     return app
 
