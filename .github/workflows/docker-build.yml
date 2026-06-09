@@ -1,0 +1,53 @@
+name: docker-build
+
+# Valide que l'image Docker de l'API se construit et que son environnement
+# Python est sain — SANS Docker local ni VPS. Tourne sur les runners GitHub.
+#
+# Portée volontairement limitée au BUILD (la partie risquée : résolution de
+# torch CPU + wheel llama-cpp-python + deps) + un smoke d'import. Le test
+# runtime /health exige le modèle GGUF + l'index → fait au déploiement VPS,
+# pas ici (le modèle n'est pas sur le runner).
+#
+# Se déclenche sur les fichiers qui affectent le build → retour vert/rouge à
+# chaque étape du chantier Docker.
+
+on:
+  pull_request:
+    paths:
+      - "Dockerfile"
+      - ".dockerignore"
+      - "docker-compose.yml"
+      - "requirements.txt"
+      - ".github/workflows/docker-build.yml"
+  push:
+    branches: [main]
+    paths:
+      - "Dockerfile"
+      - ".dockerignore"
+      - "docker-compose.yml"
+      - "requirements.txt"
+      - ".github/workflows/docker-build.yml"
+
+# Évite que deux builds s'empilent sur la même branche.
+concurrency:
+  group: docker-build-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: build + smoke import
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Build de l'image
+        run: docker build -t morrigan-api:ci .
+
+      - name: Smoke — l'environnement Python s'importe (torch CPU + llama-cpp + app)
+        run: |
+          docker run --rm morrigan-api:ci python -c "import torch, sentence_transformers, llama_cpp, fastapi, interfaces.api; print('import OK —', torch.__version__)"
+
+      - name: Valide la syntaxe du docker-compose
+        run: docker compose config --quiet
