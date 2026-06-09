@@ -14,6 +14,22 @@ GitHub sortira sans notes (cf. mémoire `gungnir-release-changelog-gotcha`).
 
 ## [Non publié]
 
+### Ajouté — corpus code multi-langage + source man (Phase 2C)
+Généralisation de `ingest_code_docs.py` en **registre de sources multi-langage**
+(`iter_source`) : le chunker code-aware, l'ingestion et l'index `int8` restent
+partagés ; **ajouter un langage = brancher une source**. Un seul index combiné,
+métadonnée `language` par chunk (filtrable). Sélection via `--sources`.
+- **Python finalisé** : `library/` (référence complète de la stdlib) ingérable
+  via `--categories tutorial,library,howto,faq`.
+- **Nouvelle source `man`** : pages man **locales** (bash, git + sous-commandes,
+  grep, sed, awk, find, curl, ssh…) → langages `bash` / `git` / `shell`. Source
+  **offline et souveraine** (zéro réseau), overstrike (gras/souligné) nettoyé,
+  pages absentes ignorées proprement.
+- Première **validation multi-langage** de l'architecture (Python + Bash + Git
+  dans un même index, interrogeable en FR). MDN (js/html/css), PostgreSQL (sql)
+  et Docker = prochains plugins du registre.
+- +5 tests (`man_language`, overstrike, registre, render man gated). **375 tests.**
+
 ### Ajouté — corpus de documentation code (Phase 2B)
 `scripts/ingest_code_docs.py` construit un index RAG de docs **code** à partir de
 deux sources : le **bundle texte officiel Python** (`docs.python.org`, téléchargé

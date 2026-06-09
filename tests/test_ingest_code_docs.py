@@ -12,11 +12,19 @@ import sys
 
 sys.path.insert(0, ".")
 
+import shutil
+
+import pytest
+
 from scripts.ingest_code_docs import (
+    _BACKSPACE_RE,
     _hard_split,
     chunk_code_doc,
     extract_pydoc,
     iter_bundle_docs,
+    iter_source,
+    man_language,
+    render_man,
 )
 
 
@@ -121,3 +129,47 @@ def test_iter_bundle_docs_missing_category(tmp_path):
     docs = dict(iter_bundle_docs(tmp_path, ("tutorial", "library")))
     assert "tutorial/a.txt" in docs
     assert len(docs) == 1
+
+
+# ─── Source man + registre multi-langage ──────────────────────────────
+
+
+def test_backspace_overstrike_stripped():
+    # man rend le gras/souligné en overstrike `X\x08X` / `_\x08X`.
+    assert _BACKSPACE_RE.sub("", "N\x08NA\x08AM\x08ME\x08E") == "NAME"
+    assert _BACKSPACE_RE.sub("", "_\x08i_\x08t_\x08a_\x08l") == "ital"
+
+
+def test_man_language_mapping():
+    assert man_language("bash") == "bash"
+    assert man_language("git") == "git"
+    assert man_language("git-commit") == "git"
+    assert man_language("grep") == "shell"
+
+
+def test_iter_source_unknown_raises():
+    with pytest.raises(ValueError, match="Source inconnue"):
+        list(iter_source("inexistant", bundle_dir=".", categories=(),
+                         pydoc_modules=(), man_pages=()))
+
+
+@pytest.mark.skipif(shutil.which("man") is None, reason="man absent")
+def test_render_man_bash_or_skip():
+    text = render_man("bash")
+    if text is None:
+        pytest.skip("page man bash indisponible sur cet hôte")
+    # Texte propre (overstrike retiré) et contenu plausible.
+    assert "\x08" not in text
+    assert "bash" in text.lower()
+
+
+@pytest.mark.skipif(shutil.which("man") is None, reason="man absent")
+def test_iter_source_man_tags_language():
+    out = list(iter_source("man", bundle_dir=".", categories=(),
+                           pydoc_modules=(), man_pages=("bash",)))
+    if not out:
+        pytest.skip("page man bash indisponible")
+    origin, text, source, language = out[0]
+    assert origin == "man/bash"
+    assert source == "man"
+    assert language == "bash"

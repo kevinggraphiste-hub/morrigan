@@ -1,11 +1,14 @@
 """
 Ingestion d'un corpus de documentation CODE dans un index Danann persisté (Phase 2B).
 
-Deux sources (décisions brainstorm 2026-06-09) :
-  1. Bundle texte officiel Python (docs.python.org) — tutorial / howto / faq /
-     (library en option). Riche, conversationnel, licence PSF. Téléchargé une
-     fois puis réutilisé hors-ligne.
-  2. Introspection `pydoc` de modules stdlib curatés — couverture API exhaustive.
+**Registre de sources multi-langage** (`iter_source`) — le chunker, l'ingestion
+et l'index sont partagés ; ajouter un langage = brancher une source. Sources
+actuelles (`--sources`) :
+  - `python` : bundle texte officiel (docs.python.org, tutorial/howto/faq/library)
+    + introspection `pydoc` de modules stdlib → langage `python`.
+  - `man` : pages man locales (bash, git, grep, sed, awk, find…) — source
+    **offline souveraine**, langages `bash` / `git` / `shell`.
+À venir (prochains plugins) : MDN (js/html/css), PostgreSQL (sql), Docker.
 
 Chunker **CODE-AWARE** : préserve l'indentation et les sauts de ligne. Le chunker
 markdown générique de `ingest_knowledge.py` écrase les espaces (`\\s+`→` `), ce
@@ -29,7 +32,10 @@ import argparse
 import importlib
 import io
 import logging
+import os
 import re
+import shutil
+import subprocess
 import sys
 import tarfile
 import urllib.parse
@@ -58,6 +64,17 @@ DEFAULT_PYDOC_MODULES = (
 
 MAX_CHARS = 1500          # ~370 tokens, sous la limite 512 d'e5-small
 MIN_CHUNK_CHARS = 40
+
+# man pages par défaut (source locale offline souveraine) : shell + git + CLI.
+DEFAULT_MAN_PAGES = (
+    "bash", "grep", "sed", "awk", "find", "xargs", "tar", "curl", "ssh", "rsync",
+    "jq", "make", "git", "git-commit", "git-rebase", "git-merge", "git-log",
+    "git-branch", "git-checkout", "git-stash", "git-remote", "git-reset",
+    "git-cherry-pick", "git-bisect",
+)
+
+# Sources disponibles dans le registre (cf. iter_source).
+ALL_SOURCES = ("python", "man")
 
 # Souligné de titre dans le format texte Sphinx (==, --, ~~, **, etc.).
 _UNDERLINE_RE = re.compile(r'^[=\-~^"\'*+#.`]{3,}\s*$')
@@ -134,6 +151,49 @@ def extract_pydoc(modules: Tuple[str, ...]) -> Iterator[Tuple[str, str]]:
             continue
         if text and text.strip():
             yield f"pydoc/{name}", text
+
+
+# ─── man pages (source locale, offline) ───────────────────────────────
+
+
+_BACKSPACE_RE = re.compile(r".\x08")  # overstrike `X\x08X` / `_\x08X` → garde le 2e
+
+
+def man_language(page: str) -> str:
+    """Langage logique d'une page man (pour la métadonnée + le filtrage)."""
+    if page == "bash":
+        return "bash"
+    if page == "git" or page.startswith("git-"):
+        return "git"
+    return "shell"
+
+
+def render_man(page: str) -> str | None:
+    """Rend une page man en texte propre (overstrike retiré), ou None si absente."""
+    if shutil.which("man") is None:
+        return None
+    if subprocess.run(["man", "-w", page], capture_output=True).returncode != 0:
+        return None
+    env = dict(os.environ, MANWIDTH="80", LC_ALL="C")
+    try:
+        out = subprocess.run(
+            ["man", page], capture_output=True, text=True, env=env, timeout=20
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return None
+    if out.returncode != 0 or not out.stdout.strip():
+        return None
+    return _BACKSPACE_RE.sub("", out.stdout)
+
+
+def extract_man(pages: Tuple[str, ...]) -> Iterator[Tuple[str, str, str]]:
+    """Itère (origine, texte, langage) sur les pages man disponibles."""
+    for page in pages:
+        text = render_man(page)
+        if text:
+            yield f"man/{page}", text, man_language(page)
+        else:
+            logger.warning("man %s indisponible → ignoré", page)
 
 
 # ─── Chunking code-aware ──────────────────────────────────────────────
@@ -234,10 +294,10 @@ def chunk_code_doc(
 # ─── Ingestion → index persisté ───────────────────────────────────────
 
 
-def _meta(origin: str, section: str, source: str) -> dict:
+def _meta(origin: str, section: str, source: str, language: str) -> dict:
     return {
         "domain": "code",
-        "language": "python",
+        "language": language,
         "source": source,
         "origin": origin,
         "section": section,
@@ -246,40 +306,64 @@ def _meta(origin: str, section: str, source: str) -> dict:
     }
 
 
+def iter_source(
+    name: str, *, bundle_dir: Path, categories: Tuple[str, ...],
+    pydoc_modules: Tuple[str, ...], man_pages: Tuple[str, ...],
+) -> Iterator[Tuple[str, str, str, str]]:
+    """Registre de sources → itère (origine, texte, source, langage).
+
+    Ajouter un langage = brancher une nouvelle source ici (MDN, PostgreSQL,
+    Docker…) ; le chunker, l'ingestion et l'index restent partagés.
+    """
+    if name == "python":
+        for origin, text in iter_bundle_docs(bundle_dir, categories):
+            yield origin, text, "python-docs", "python"
+        for origin, text in extract_pydoc(pydoc_modules):
+            yield origin, text, "pydoc", "python"
+    elif name == "man":
+        for origin, text, language in extract_man(man_pages):
+            yield origin, text, "man", language
+    else:
+        raise ValueError(f"Source inconnue : {name!r} (dispo : {ALL_SOURCES})")
+
+
 def build_index(
     danann,
     *,
+    sources: Tuple[str, ...],
     bundle_dir: Path,
     categories: Tuple[str, ...],
     pydoc_modules: Tuple[str, ...],
+    man_pages: Tuple[str, ...],
     max_files: int | None,
     max_chars: int,
 ) -> int:
-    """Ingère bundle + pydoc dans `danann` (incrémental, par document)."""
+    """Ingère les sources sélectionnées dans `danann` (incrémental, par doc)."""
     total = 0
     files = 0
+    by_lang: dict[str, int] = {}
 
-    def sources() -> Iterator[Tuple[str, str, str]]:
-        for origin, text in iter_bundle_docs(bundle_dir, categories):
-            yield origin, text, "python-docs"
-        for origin, text in extract_pydoc(pydoc_modules):
-            yield origin, text, "pydoc"
+    for name in sources:
+        for origin, text, source, language in iter_source(
+            name, bundle_dir=bundle_dir, categories=categories,
+            pydoc_modules=pydoc_modules, man_pages=man_pages,
+        ):
+            if max_files is not None and files >= max_files:
+                logger.info("Limite --max-files (%d) atteinte", max_files)
+                return total
+            chunks = chunk_code_doc(text, max_chars=max_chars)
+            if not chunks:
+                continue
+            texts = [c for c, _ in chunks]
+            metas = [_meta(origin, sec, source, language) for _, sec in chunks]
+            inserted = danann.index(texts, metas)
+            total += inserted
+            by_lang[language] = by_lang.get(language, 0) + inserted
+            files += 1
+            if files % 20 == 0:
+                logger.info("  %d docs, %d chunks…", files, total)
 
-    for origin, text, source in sources():
-        if max_files is not None and files >= max_files:
-            logger.info("Limite --max-files (%d) atteinte", max_files)
-            break
-        chunks = chunk_code_doc(text, max_chars=max_chars)
-        if not chunks:
-            continue
-        texts = [c for c, _ in chunks]
-        metas = [_meta(origin, sec, source) for _, sec in chunks]
-        total += danann.index(texts, metas)
-        files += 1
-        if files % 20 == 0:
-            logger.info("  %d docs, %d chunks…", files, total)
-
-    logger.info("Ingéré : %d documents, %d chunks", files, total)
+    logger.info("Ingéré : %d documents, %d chunks  par langage: %s", files, total, by_lang)
     return total
 
 
@@ -289,12 +373,20 @@ def main(argv: List[str] | None = None) -> int:
     parser.add_argument("--output", default=str(DEFAULT_OUTPUT))
     parser.add_argument("--compression", default="int8", choices=["none", "int8", "binary"])
     parser.add_argument(
+        "--sources", default=",".join(ALL_SOURCES),
+        help=f"Sources à ingérer parmi {ALL_SOURCES} (ex: python,man).",
+    )
+    parser.add_argument(
         "--categories", default=",".join(DEFAULT_CATEGORIES),
-        help="Catégories du bundle (ex: tutorial,library,howto,faq).",
+        help="Catégories du bundle Python (ex: tutorial,library,howto,faq).",
     )
     parser.add_argument(
         "--pydoc-modules", default=",".join(DEFAULT_PYDOC_MODULES),
         help="Modules stdlib pour pydoc, ou 'none'.",
+    )
+    parser.add_argument(
+        "--man-pages", default=",".join(DEFAULT_MAN_PAGES),
+        help="Pages man à ingérer, ou 'none'.",
     )
     parser.add_argument("--max-chars", type=int, default=MAX_CHARS)
     parser.add_argument("--max-files", type=int, default=None, help="Cap de docs (test rapide).")
@@ -307,19 +399,26 @@ def main(argv: List[str] | None = None) -> int:
     from modules.danann.store import Danann  # noqa: PLC0415
 
     bundle_dir = Path(args.bundle_dir)
+    sources = tuple(s.strip() for s in args.sources.split(",") if s.strip())
     categories = tuple(c.strip() for c in args.categories.split(",") if c.strip())
     pydoc_modules = (
         () if args.pydoc_modules.strip().lower() == "none"
         else tuple(m.strip() for m in args.pydoc_modules.split(",") if m.strip())
     )
+    man_pages = (
+        () if args.man_pages.strip().lower() == "none"
+        else tuple(m.strip() for m in args.man_pages.split(",") if m.strip())
+    )
 
-    if not args.no_fetch and categories:
+    # Le bundle n'est téléchargé que si la source python le requiert.
+    if "python" in sources and not args.no_fetch and categories:
         fetch_python_text_bundle(bundle_dir)
 
     danann = Danann(compression=args.compression, use_reranker=False)
     total = build_index(
-        danann, bundle_dir=bundle_dir, categories=categories,
-        pydoc_modules=pydoc_modules, max_files=args.max_files, max_chars=args.max_chars,
+        danann, sources=sources, bundle_dir=bundle_dir, categories=categories,
+        pydoc_modules=pydoc_modules, man_pages=man_pages,
+        max_files=args.max_files, max_chars=args.max_chars,
     )
 
     if total < args.min_chunks:
@@ -332,7 +431,7 @@ def main(argv: List[str] | None = None) -> int:
     float_equiv = danann.count() * 384 * 4
     ratio = float_equiv / mem if mem else 0.0
     print("─" * 60)
-    print(f"Sources     : bundle {categories} + pydoc ({len(pydoc_modules)} modules)")
+    print(f"Sources     : {sources}")
     print(f"Chunks      : {danann.count()}")
     print(f"Compression : {args.compression}")
     print(f"Index RAM   : {mem/1024:.1f} KB (float32 équiv ~{float_equiv/1024:.1f} KB → ×{ratio:.1f})")

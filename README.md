@@ -114,8 +114,8 @@ Six modules nommés d'après la mythologie celtique :
 - Observabilité `/stats` (CLI + Telegram) : routage, probas Brigid, generated_by, latence
 - Interfaces CLI + Telegram (streaming), `.env` auto-load, backends Danann branchables (memory / Supabase pgvector), scripts d'ingestion
 - **API OpenAI-compatible** (`/v1/chat/completions`, `/v1/models`) : branchable tel quel comme provider custom dans un client OpenAI (dont Gungnir)
-- **Corpus de documentation code** (Phase 2B) : ingestion des docs officielles Python (bundle texte + pydoc), chunker code-aware, index `int8` interrogeable en FR
-- **370 tests** (pytest), 6 workflows CI (tests, version-sync, release, brigid-train, kg-build, docker-build)
+- **Corpus de documentation code multi-langage** (Phases 2B/2C) : registre de sources (Python officiel + pydoc, pages man bash/git/CLI), chunker code-aware, index `int8` interrogeable en FR
+- **375 tests** (pytest), 6 workflows CI (tests, version-sync, release, brigid-train, kg-build, docker-build)
 
 ### Performances mesurées
 
@@ -253,25 +253,32 @@ Ingère récursivement tous les `.md` et `.txt` du dossier donné. Backend
 
 #### Corpus de documentation **code** (Phase 2B)
 
-`scripts/ingest_code_docs.py` construit un index de docs **code** à partir de
-deux sources : le **bundle texte officiel Python** (téléchargé une fois depuis
-`docs.python.org`) et l'introspection **`pydoc`** de modules stdlib. Chunker
-*code-aware* (préserve l'indentation, garde code + explication ensemble, sous la
-limite ~512 tokens d'e5). Corpus EN **interrogeable en FR** (embedder
-multilingue, Phase 2A).
+`scripts/ingest_code_docs.py` construit un index de docs **code** via un
+**registre de sources multi-langage** (`--sources`) — chunker *code-aware*
+(préserve l'indentation, garde code + explication ensemble, sous ~512 tokens e5),
+index `int8` unique, métadonnée `language` par chunk. Corpus EN **interrogeable
+en FR** (embedder multilingue, Phase 2A). Sources actuelles :
+
+- **`python`** : bundle texte officiel (`docs.python.org`, tutorial/howto/faq/
+  `library`) + introspection `pydoc` de modules stdlib → langage `python`.
+- **`man`** : pages man locales (bash, git, grep, sed, awk, find…) — **offline,
+  souverain** → langages `bash`/`git`/`shell`.
 
 ```bash
-# Build scopé par défaut (tutorial + howto + faq + 20 modules pydoc) → ~2000 chunks
-.venv-uv/bin/python scripts/ingest_code_docs.py --output data/models/index_code
+# Multi-langage : Python complet (avec la stdlib) + man (bash/git/CLI)
+.venv-uv/bin/python scripts/ingest_code_docs.py \
+    --sources python,man --categories tutorial,library,howto,faq \
+    --output data/models/index_code
 
-# Corpus complet (ajoute la référence de la stdlib, beaucoup plus gros)
-.venv-uv/bin/python scripts/ingest_code_docs.py --categories tutorial,library,howto,faq
+# Python scopé seul (rapide, sans library/)
+.venv-uv/bin/python scripts/ingest_code_docs.py --sources python --output data/models/index_code
 
 # Servir l'index code au runtime
 MORRIGAN_INDEX=data/models/index_code .venv-uv/bin/python -m interfaces.api
 ```
 
-Docs téléchargées et index sont **gitignorés** (régénérables via le script).
+À venir : MDN (js/html/css), PostgreSQL (sql), Docker. Docs téléchargées et
+index sont **gitignorés** (régénérables via le script).
 
 ### Servir un index compressé persisté
 
