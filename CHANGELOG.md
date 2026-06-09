@@ -30,6 +30,11 @@ Conteneurisation de l'API HTTP (Phase 5, production) :
   Suppression de `version: "3.8"`, du stub redis et de `TELEGRAM_TOKEN`.
 - **`.dockerignore`** : exclut `.env` (secrets non bakés), `data/` (monté en
   volume), venvs, `.git`, caches — contexte de build léger.
+- **`.github/workflows/docker-build.yml`** : CI qui build l'image sur les
+  runners GitHub + smoke d'import (torch CPU / llama-cpp / app) + `docker
+  compose config` — valide la partie risquée du build sans Docker local ni
+  VPS, à chaque changement des fichiers Docker. Le test runtime `/health`
+  (modèle GGUF requis) est reporté au déploiement VPS.
 
 ## [0.5.0] - 2026-06-03
 
