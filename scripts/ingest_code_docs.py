@@ -8,7 +8,11 @@ actuelles (`--sources`) :
     + introspection `pydoc` de modules stdlib → langage `python`.
   - `man` : pages man locales (bash, git, grep, sed, awk, find…) — source
     **offline souveraine**, langages `bash` / `git` / `shell`.
-À venir (prochains plugins) : MDN (js/html/css), PostgreSQL (sql), Docker.
+  - `mdn` : docs web MDN (`mdn/content`, sparse clone git limité à
+    `files/en-us/web/{javascript,css,html}`) → langages `javascript` /
+    `css` / `html`. Markdown : front-matter + macros Kuma nettoyés,
+    chunking sur titres `##` (hors code-fences).
+À venir (prochains plugins) : PostgreSQL (sql), Docker.
 
 Chunker **CODE-AWARE** : préserve l'indentation et les sauts de ligne. Le chunker
 markdown générique de `ingest_knowledge.py` écrase les espaces (`\\s+`→` `), ce
@@ -73,8 +77,16 @@ DEFAULT_MAN_PAGES = (
     "git-cherry-pick", "git-bisect",
 )
 
+# MDN : sparse clone du repo de contenu officiel, limité aux aires utiles.
+DEFAULT_MDN_DIR = Path("data/code_docs/mdn")
+MDN_REPO_URL = "https://github.com/mdn/content.git"
+DEFAULT_MDN_AREAS = ("javascript", "css", "html")
+
 # Sources disponibles dans le registre (cf. iter_source).
-ALL_SOURCES = ("python", "man")
+ALL_SOURCES = ("python", "man", "mdn")
+
+# Sources dont les documents sont du markdown (chunking sur titres `#`).
+MARKDOWN_SOURCES = {"mdn"}
 
 # Souligné de titre dans le format texte Sphinx (==, --, ~~, **, etc.).
 _UNDERLINE_RE = re.compile(r'^[=\-~^"\'*+#.`]{3,}\s*$')
@@ -196,16 +208,105 @@ def extract_man(pages: Tuple[str, ...]) -> Iterator[Tuple[str, str, str]]:
             logger.warning("man %s indisponible → ignoré", page)
 
 
+# ─── MDN (mdn/content, sparse clone) ──────────────────────────────────
+
+
+_FRONT_MATTER_RE = re.compile(r"\A---\n(.*?)\n---\n", re.DOTALL)
+# Ligne entièrement macro(s) Kuma ({{Compat}}, {{Specifications}}, sidebars…).
+_MACRO_LINE_RE = re.compile(r"^\s*(\{\{[^{}]*\}\}\s*)+$")
+# Macros xref inline : on garde l'argument cité ({{jsxref("Array")}} → `Array`).
+_MACRO_XREF_RE = re.compile(r'\{\{\s*\w+\(\s*"([^"]+)"[^{}]*\)\s*\}\}')
+_MACRO_ANY_RE = re.compile(r"\{\{[^{}]*\}\}")
+
+
+def mdn_language(area: str) -> str:
+    """Langage logique d'une aire MDN (`files/en-us/web/<area>`)."""
+    return {"api": "javascript", "http": "http"}.get(area, area)
+
+
+def parse_mdn_page(raw: str) -> Tuple[str, str]:
+    """(titre, corps nettoyé) d'une page MDN : front-matter YAML extrait,
+    macros Kuma retirées (les xref gardent leur argument)."""
+    title = ""
+    body = raw
+    m = _FRONT_MATTER_RE.match(raw)
+    if m:
+        body = raw[m.end():]
+        tm = re.search(r"^title:\s*(.+)$", m.group(1), re.MULTILINE)
+        if tm:
+            title = tm.group(1).strip().strip("'\"")
+    body = "\n".join(l for l in body.splitlines() if not _MACRO_LINE_RE.match(l))
+    body = _MACRO_XREF_RE.sub(lambda mm: f"`{mm.group(1)}`", body)
+    body = _MACRO_ANY_RE.sub("", body)
+    return title, body
+
+
+def fetch_mdn_content(
+    dest: Path = DEFAULT_MDN_DIR, areas: Tuple[str, ...] = DEFAULT_MDN_AREAS
+) -> Path:
+    """Sparse clone de mdn/content limité aux aires demandées (idempotent)."""
+    dest = Path(dest)
+    web = dest / "files" / "en-us" / "web"
+    if web.exists() and next(web.rglob("index.md"), None) is not None:
+        logger.info("Contenu MDN déjà présent (%s) → pas de re-clone", dest)
+        return dest
+    if shutil.which("git") is None:
+        raise RuntimeError("git requis pour la source mdn (sparse clone).")
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    logger.info("Sparse clone MDN (%s) → %s", ",".join(areas), dest)
+    subprocess.run(
+        ["git", "clone", "--depth", "1", "--filter=blob:none", "--sparse",
+         MDN_REPO_URL, str(dest)],
+        check=True,
+    )
+    subprocess.run(
+        ["git", "-C", str(dest), "sparse-checkout", "set",
+         *(f"files/en-us/web/{a}" for a in areas)],
+        check=True,
+    )
+    return dest
+
+
+def iter_mdn_docs(
+    mdn_dir: Path, areas: Tuple[str, ...]
+) -> Iterator[Tuple[str, str, str]]:
+    """Itère (origine, texte, langage) sur les pages `index.md` des aires MDN."""
+    web = Path(mdn_dir) / "files" / "en-us" / "web"
+    for area in areas:
+        adir = web / area
+        if not adir.exists():
+            logger.warning("Aire MDN absente : %s", area)
+            continue
+        for md in sorted(adir.rglob("index.md")):
+            try:
+                raw = md.read_text(encoding="utf-8")
+            except (OSError, UnicodeDecodeError):
+                continue
+            title, body = parse_mdn_page(raw)
+            if title:
+                body = f"{title}\n\n{body}"
+            rel = md.parent.relative_to(web).as_posix()
+            yield f"mdn/{rel}", body, mdn_language(area)
+
+
 # ─── Chunking code-aware ──────────────────────────────────────────────
 
 
-def _to_units(text: str) -> List[Tuple[str, str]]:
+_MD_HEADING_RE = re.compile(r"^#{1,6}\s+(.+?)\s*$")
+_MD_FENCE_RE = re.compile(r"^\s*(```|~~~)")
+
+
+def _to_units(text: str, markdown: bool = False) -> List[Tuple[str, str]]:
     """Découpe le texte en (section, bloc) — blocs séparés par lignes vides,
-    titre courant suivi selon les soulignés Sphinx. Préserve les newlines."""
+    titre courant suivi selon les soulignés Sphinx. Préserve les newlines.
+
+    `markdown=True` reconnaît AUSSI les titres `#`…`######`, mais jamais à
+    l'intérieur d'un code-fence (un `# commentaire` bash n'est pas un titre)."""
     lines = text.splitlines()
     units: List[Tuple[str, str]] = []
     section = ""
     buf: List[str] = []
+    in_fence = False
 
     def flush() -> None:
         nonlocal buf
@@ -218,15 +319,27 @@ def _to_units(text: str) -> List[Tuple[str, str]]:
     n = len(lines)
     while i < n:
         line = lines[i]
+        if markdown and _MD_FENCE_RE.match(line):
+            in_fence = not in_fence
+        if markdown and not in_fence:
+            hm = _MD_HEADING_RE.match(line)
+            if hm:
+                flush()
+                section = hm.group(1)
+                i += 1
+                continue
         nxt = lines[i + 1] if i + 1 < n else ""
         title = line.strip()
         # Titre : ligne non vide suivie d'un souligné d'au moins sa demi-longueur.
-        if title and _UNDERLINE_RE.match(nxt) and len(nxt.strip()) >= max(3, len(title) // 2):
+        if (
+            not in_fence and title and _UNDERLINE_RE.match(nxt)
+            and len(nxt.strip()) >= max(3, len(title) // 2)
+        ):
             flush()
             section = title
             i += 2
             continue
-        if not line.strip():
+        if not line.strip() and not in_fence:
             flush()
             i += 1
             continue
@@ -253,7 +366,8 @@ def _hard_split(block: str, max_chars: int) -> List[str]:
 
 
 def chunk_code_doc(
-    text: str, max_chars: int = MAX_CHARS, min_chars: int = MIN_CHUNK_CHARS
+    text: str, max_chars: int = MAX_CHARS, min_chars: int = MIN_CHUNK_CHARS,
+    markdown: bool = False,
 ) -> List[Tuple[str, str]]:
     """Découpe un document en (chunk, section), code-aware.
 
@@ -261,8 +375,9 @@ def chunk_code_doc(
     - Empaquette des blocs entiers jusqu'à `max_chars`, sans traverser une
       frontière de section (un chunk = une seule section).
     - Un bloc plus long que `max_chars` (gros exemple) est coupé par lignes.
+    - `markdown=True` : sections aussi sur titres `#`, hors code-fences.
     """
-    units = _to_units(text)
+    units = _to_units(text, markdown=markdown)
     chunks: List[Tuple[str, str]] = []
     cur: List[str] = []
     cur_section = ""
@@ -309,10 +424,11 @@ def _meta(origin: str, section: str, source: str, language: str) -> dict:
 def iter_source(
     name: str, *, bundle_dir: Path, categories: Tuple[str, ...],
     pydoc_modules: Tuple[str, ...], man_pages: Tuple[str, ...],
+    mdn_dir: Path = DEFAULT_MDN_DIR, mdn_areas: Tuple[str, ...] = DEFAULT_MDN_AREAS,
 ) -> Iterator[Tuple[str, str, str, str]]:
     """Registre de sources → itère (origine, texte, source, langage).
 
-    Ajouter un langage = brancher une nouvelle source ici (MDN, PostgreSQL,
+    Ajouter un langage = brancher une nouvelle source ici (PostgreSQL,
     Docker…) ; le chunker, l'ingestion et l'index restent partagés.
     """
     if name == "python":
@@ -323,6 +439,9 @@ def iter_source(
     elif name == "man":
         for origin, text, language in extract_man(man_pages):
             yield origin, text, "man", language
+    elif name == "mdn":
+        for origin, text, language in iter_mdn_docs(mdn_dir, mdn_areas):
+            yield origin, text, "mdn", language
     else:
         raise ValueError(f"Source inconnue : {name!r} (dispo : {ALL_SOURCES})")
 
@@ -335,6 +454,8 @@ def build_index(
     categories: Tuple[str, ...],
     pydoc_modules: Tuple[str, ...],
     man_pages: Tuple[str, ...],
+    mdn_dir: Path = DEFAULT_MDN_DIR,
+    mdn_areas: Tuple[str, ...] = DEFAULT_MDN_AREAS,
     max_files: int | None,
     max_chars: int,
 ) -> int:
@@ -347,11 +468,14 @@ def build_index(
         for origin, text, source, language in iter_source(
             name, bundle_dir=bundle_dir, categories=categories,
             pydoc_modules=pydoc_modules, man_pages=man_pages,
+            mdn_dir=mdn_dir, mdn_areas=mdn_areas,
         ):
             if max_files is not None and files >= max_files:
                 logger.info("Limite --max-files (%d) atteinte", max_files)
                 return total
-            chunks = chunk_code_doc(text, max_chars=max_chars)
+            chunks = chunk_code_doc(
+                text, max_chars=max_chars, markdown=(source in MARKDOWN_SOURCES)
+            )
             if not chunks:
                 continue
             texts = [c for c, _ in chunks]
@@ -388,6 +512,11 @@ def main(argv: List[str] | None = None) -> int:
         "--man-pages", default=",".join(DEFAULT_MAN_PAGES),
         help="Pages man à ingérer, ou 'none'.",
     )
+    parser.add_argument("--mdn-dir", default=str(DEFAULT_MDN_DIR))
+    parser.add_argument(
+        "--mdn-areas", default=",".join(DEFAULT_MDN_AREAS),
+        help="Aires MDN (sous files/en-us/web/) à ingérer (ex: javascript,css,html).",
+    )
     parser.add_argument("--max-chars", type=int, default=MAX_CHARS)
     parser.add_argument("--max-files", type=int, default=None, help="Cap de docs (test rapide).")
     parser.add_argument("--min-chunks", type=int, default=1)
@@ -409,15 +538,20 @@ def main(argv: List[str] | None = None) -> int:
         () if args.man_pages.strip().lower() == "none"
         else tuple(m.strip() for m in args.man_pages.split(",") if m.strip())
     )
+    mdn_dir = Path(args.mdn_dir)
+    mdn_areas = tuple(a.strip() for a in args.mdn_areas.split(",") if a.strip())
 
-    # Le bundle n'est téléchargé que si la source python le requiert.
+    # Les téléchargements ne se font que si la source concernée le requiert.
     if "python" in sources and not args.no_fetch and categories:
         fetch_python_text_bundle(bundle_dir)
+    if "mdn" in sources and not args.no_fetch and mdn_areas:
+        fetch_mdn_content(mdn_dir, mdn_areas)
 
     danann = Danann(compression=args.compression, use_reranker=False)
     total = build_index(
         danann, sources=sources, bundle_dir=bundle_dir, categories=categories,
         pydoc_modules=pydoc_modules, man_pages=man_pages,
+        mdn_dir=mdn_dir, mdn_areas=mdn_areas,
         max_files=args.max_files, max_chars=args.max_chars,
     )
 

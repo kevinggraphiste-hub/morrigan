@@ -14,6 +14,23 @@ GitHub sortira sans notes (cf. mémoire `gungnir-release-changelog-gotcha`).
 
 ## [Non publié]
 
+### Ajouté — source MDN : javascript / css / html (Phase 2C, passe 2)
+Nouveau plugin `mdn` du registre de sources : docs web officielles **MDN**
+(`mdn/content`) → langages `javascript`, `css`, `html` dans le même index
+combiné.
+- **Fetch léger** : sparse clone git (`--depth 1 --filter=blob:none --sparse`)
+  limité à `files/en-us/web/{javascript,css,html}` (~57 Mo au lieu du repo
+  entier), idempotent, aires sélectionnables via `--mdn-areas`.
+- **Parsing MDN** : front-matter YAML extrait (titre préfixé au corps), macros
+  Kuma nettoyées (lignes `{{Compat}}`/`{{Specifications}}` droppées, xref
+  inline `{{jsxref("Array")}}` → argument conservé).
+- **Chunker markdown opt-in** (`chunk_code_doc(markdown=True)`) : sections sur
+  titres `#`…`######` détectés **hors code-fences** (un `# commentaire` bash
+  dans une fence n'est pas un titre) ; les sources python/man sont inchangées.
+- 2 814 pages (js 1 330, css 1 230, html 253) → ~24 800 chunks.
+- +5 tests CI-safe (parsing, macros, mapping langage, chunking markdown,
+  câblage registre — fixtures tmp, zéro réseau). **380 tests.**
+
 ### Ajouté — corpus code multi-langage + source man (Phase 2C)
 Généralisation de `ingest_code_docs.py` en **registre de sources multi-langage**
 (`iter_source`) : le chunker code-aware, l'ingestion et l'index `int8` restent
