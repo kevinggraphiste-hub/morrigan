@@ -22,8 +22,11 @@ from scripts.ingest_code_docs import (
     chunk_code_doc,
     extract_pydoc,
     iter_bundle_docs,
+    iter_mdn_docs,
     iter_source,
     man_language,
+    mdn_language,
+    parse_mdn_page,
     render_man,
 )
 
@@ -173,3 +176,89 @@ def test_iter_source_man_tags_language():
     assert origin == "man/bash"
     assert source == "man"
     assert language == "bash"
+
+
+# ─── Source MDN (markdown, fixtures tmp, zéro réseau) ─────────────────
+
+
+_MDN_PAGE = """---
+title: Array.prototype.map()
+slug: Web/JavaScript/Reference/Global_Objects/Array/map
+page-type: javascript-instance-method
+---
+
+{{JSRef}}
+
+The {{jsxref("Array")}} method **`map()`** creates a new array.
+
+## Syntax
+
+```js
+# pas un titre : commentaire dans une fence
+map(callbackFn)
+```
+
+## Examples
+
+Some example text.
+
+{{Compat}}
+"""
+
+
+def test_parse_mdn_page_front_matter_and_macros():
+    title, body = parse_mdn_page(_MDN_PAGE)
+    assert title == "Array.prototype.map()"
+    assert "slug:" not in body                # front-matter retiré
+    assert "{{JSRef}}" not in body            # ligne macro-only droppée
+    assert "{{Compat}}" not in body
+    assert "`Array`" in body                  # xref → argument conservé
+    assert "{{" not in body                   # plus aucune macro résiduelle
+
+
+def test_mdn_language_mapping():
+    assert mdn_language("javascript") == "javascript"
+    assert mdn_language("css") == "css"
+    assert mdn_language("html") == "html"
+    assert mdn_language("api") == "javascript"
+
+
+def test_markdown_chunking_headings_not_in_fences():
+    _, body = parse_mdn_page(_MDN_PAGE)
+    chunks = chunk_code_doc(body, markdown=True, min_chars=5)
+    sections = {sec for _, sec in chunks}
+    assert "Syntax" in sections
+    assert "Examples" in sections
+    # Le `# commentaire` dans la fence n'est PAS devenu une section.
+    assert not any(sec.startswith("pas un titre") for sec in sections)
+    # Le code de la fence est conservé tel quel dans un chunk.
+    assert any("map(callbackFn)" in c for c, _ in chunks)
+
+
+def test_iter_mdn_docs_tmp(tmp_path):
+    page_dir = tmp_path / "files" / "en-us" / "web" / "javascript" / "ref" / "map"
+    page_dir.mkdir(parents=True)
+    (page_dir / "index.md").write_text(_MDN_PAGE, encoding="utf-8")
+    out = list(iter_mdn_docs(tmp_path, ("javascript", "css")))  # css absente → warning
+    assert len(out) == 1
+    origin, text, language = out[0]
+    assert origin == "mdn/javascript/ref/map"
+    assert language == "javascript"
+    assert text.startswith("Array.prototype.map()")  # titre préfixé au corps
+
+
+def test_iter_source_mdn_wiring(tmp_path):
+    page_dir = tmp_path / "files" / "en-us" / "web" / "css" / "color"
+    page_dir.mkdir(parents=True)
+    (page_dir / "index.md").write_text(
+        "---\ntitle: color\n---\n\nThe **color** CSS property sets text color.\n",
+        encoding="utf-8",
+    )
+    out = list(iter_source("mdn", bundle_dir=tmp_path, categories=(),
+                           pydoc_modules=(), man_pages=(),
+                           mdn_dir=tmp_path, mdn_areas=("css",)))
+    assert len(out) == 1
+    origin, text, source, language = out[0]
+    assert source == "mdn"
+    assert language == "css"
+    assert origin == "mdn/css/color"
