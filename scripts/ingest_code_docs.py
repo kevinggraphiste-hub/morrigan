@@ -12,7 +12,13 @@ actuelles (`--sources`) :
     `files/en-us/web/{javascript,css,html}`) → langages `javascript` /
     `css` / `html`. Markdown : front-matter + macros Kuma nettoyés,
     chunking sur titres `##` (hors code-fences).
-À venir (prochains plugins) : PostgreSQL (sql), Docker.
+  - `docker` : docs officielles Docker (`docker/docs`, sparse clone limité à
+    `content/{get-started,manuals,reference}`) → langage `docker`.
+    Markdown Hugo : front-matter + shortcodes `{{< … >}}`/`{{% … %}}` nettoyés.
+  - `postgresql` : doc HTML **pré-buildée** du tarball docs officiel
+    (`postgresql-X.Y-docs.tar.gz`, auto-suit la dernière version stable) →
+    langage `sql`. HTML converti en pseudo-markdown code-aware (`<pre>` →
+    fences, `<hN>` → titres `#`), pages scopées par préfixe (`--pg-prefixes`).
 
 Chunker **CODE-AWARE** : préserve l'indentation et les sauts de ligne. Le chunker
 markdown générique de `ingest_knowledge.py` écrase les espaces (`\\s+`→` `), ce
@@ -44,6 +50,7 @@ import sys
 import tarfile
 import urllib.parse
 import urllib.request
+from html.parser import HTMLParser
 from pathlib import Path
 from typing import Iterator, List, Tuple
 
@@ -82,11 +89,29 @@ DEFAULT_MDN_DIR = Path("data/code_docs/mdn")
 MDN_REPO_URL = "https://github.com/mdn/content.git"
 DEFAULT_MDN_AREAS = ("javascript", "css", "html")
 
+# Docker : sparse clone du repo de docs officiel, limité aux aires utiles
+# (`guides` = tutoriels par cas d'usage, exclu par défaut ; `includes` = partials).
+DEFAULT_DOCKER_DIR = Path("data/code_docs/docker-docs")
+DOCKER_REPO_URL = "https://github.com/docker/docs.git"
+DEFAULT_DOCKER_AREAS = ("get-started", "manuals", "reference")
+
+# PostgreSQL : doc HTML pré-buildée embarquée dans le tarball source officiel.
+DEFAULT_PG_DIR = Path("data/code_docs/postgres-html")
+PG_SOURCE_LISTING = "https://ftp.postgresql.org/pub/source/"
+# Préfixes de pages ingérés par défaut : le cœur SQL utilisable en Q/R
+# (tutoriel, référence SQL `sql-*`, types, requêtes, DDL/DML, fonctions,
+# index, perfs) — pas les internals/protocole/API C.
+DEFAULT_PG_PREFIXES = (
+    "tutorial", "sql", "datatype", "queries", "ddl", "dml",
+    "functions", "indexes", "textsearch", "performance",
+)
+
 # Sources disponibles dans le registre (cf. iter_source).
-ALL_SOURCES = ("python", "man", "mdn")
+ALL_SOURCES = ("python", "man", "mdn", "docker", "postgresql")
 
 # Sources dont les documents sont du markdown (chunking sur titres `#`).
-MARKDOWN_SOURCES = {"mdn"}
+# `postgresql` : le HTML est converti en pseudo-markdown (titres #, fences).
+MARKDOWN_SOURCES = {"mdn", "docker", "postgresql"}
 
 # Souligné de titre dans le format texte Sphinx (==, --, ~~, **, etc.).
 _UNDERLINE_RE = re.compile(r'^[=\-~^"\'*+#.`]{3,}\s*$')
@@ -289,6 +314,221 @@ def iter_mdn_docs(
             yield f"mdn/{rel}", body, mdn_language(area)
 
 
+# ─── Docker (docker/docs, sparse clone, markdown Hugo) ────────────────
+
+
+# Ligne entièrement shortcode(s) Hugo ({{< tabs >}}, {{% include %}}…).
+_SHORTCODE_LINE_RE = re.compile(r"^\s*(\{\{[<%][^{}]*[>%]\}\}\s*)+$")
+_SHORTCODE_ANY_RE = re.compile(r"\{\{[<%][^{}]*[>%]\}\}")
+
+
+def parse_docker_page(raw: str) -> Tuple[str, str]:
+    """(titre, corps nettoyé) d'une page docker/docs : front-matter Hugo
+    extrait, shortcodes `{{< … >}}` / `{{% … %}}` retirés."""
+    title = ""
+    body = raw
+    m = _FRONT_MATTER_RE.match(raw)
+    if m:
+        body = raw[m.end():]
+        tm = re.search(r"^title:\s*(.+)$", m.group(1), re.MULTILINE)
+        if tm:
+            title = tm.group(1).strip().strip("'\"")
+    body = "\n".join(l for l in body.splitlines() if not _SHORTCODE_LINE_RE.match(l))
+    body = _SHORTCODE_ANY_RE.sub("", body)
+    return title, body
+
+
+def fetch_docker_docs(
+    dest: Path = DEFAULT_DOCKER_DIR, areas: Tuple[str, ...] = DEFAULT_DOCKER_AREAS
+) -> Path:
+    """Sparse clone de docker/docs limité aux aires demandées (idempotent)."""
+    dest = Path(dest)
+    content = dest / "content"
+    if content.exists() and next(content.rglob("*.md"), None) is not None:
+        logger.info("Contenu docker/docs déjà présent (%s) → pas de re-clone", dest)
+        return dest
+    if shutil.which("git") is None:
+        raise RuntimeError("git requis pour la source docker (sparse clone).")
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    logger.info("Sparse clone docker/docs (%s) → %s", ",".join(areas), dest)
+    subprocess.run(
+        ["git", "clone", "--depth", "1", "--filter=blob:none", "--sparse",
+         DOCKER_REPO_URL, str(dest)],
+        check=True,
+    )
+    subprocess.run(
+        ["git", "-C", str(dest), "sparse-checkout", "set",
+         *(f"content/{a}" for a in areas)],
+        check=True,
+    )
+    return dest
+
+
+def iter_docker_docs(
+    docker_dir: Path, areas: Tuple[str, ...]
+) -> Iterator[Tuple[str, str, str]]:
+    """Itère (origine, texte, langage) sur les pages markdown docker/docs."""
+    content = Path(docker_dir) / "content"
+    for area in areas:
+        adir = content / area
+        if not adir.exists():
+            logger.warning("Aire docker/docs absente : %s", area)
+            continue
+        for md in sorted(adir.rglob("*.md")):
+            try:
+                raw = md.read_text(encoding="utf-8")
+            except (OSError, UnicodeDecodeError):
+                continue
+            title, body = parse_docker_page(raw)
+            if title:
+                body = f"{title}\n\n{body}"
+            rel = md.relative_to(content).as_posix()
+            yield f"docker/{rel}", body, "docker"
+
+
+# ─── PostgreSQL (doc HTML pré-buildée du tarball source) ──────────────
+
+
+def resolve_pg_tarball_url(listing: str = PG_SOURCE_LISTING) -> str:
+    """URL du tarball **docs** (HTML pré-buildé, ~4 Mo) de la dernière version
+    stable (vX.Y, pas de beta/rc — auto-suit la version, rien à coder en dur).
+    ⚠️ le tarball *source* ne contient plus que les SGML, pas le HTML."""
+    with urllib.request.urlopen(listing, timeout=30) as r:  # noqa: S310
+        html = r.read().decode("utf-8", "replace")
+    versions = re.findall(r'href="v(\d+)\.(\d+)/"', html)
+    if not versions:
+        raise RuntimeError("Aucune version stable trouvée sur le listing PostgreSQL.")
+    major, minor = max((int(a), int(b)) for a, b in versions)
+    return f"{listing}v{major}.{minor}/postgresql-{major}.{minor}-docs.tar.gz"
+
+
+def fetch_postgres_html(dest: Path = DEFAULT_PG_DIR) -> Path:
+    """Télécharge le tarball source PostgreSQL et en extrait la doc HTML
+    pré-buildée (`*/doc/src/sgml/html/*.html`) à plat dans `dest` (idempotent)."""
+    dest = Path(dest)
+    if dest.exists() and next(dest.glob("*.html"), None) is not None:
+        logger.info("Doc PostgreSQL déjà présente (%s) → pas de re-téléchargement", dest)
+        return dest
+    url = resolve_pg_tarball_url()
+    logger.info("Téléchargement du tarball PostgreSQL : %s", url)
+    with urllib.request.urlopen(url, timeout=300) as r:  # noqa: S310
+        data = r.read()
+    dest.mkdir(parents=True, exist_ok=True)
+    extracted = 0
+    with tarfile.open(fileobj=io.BytesIO(data), mode="r:gz") as tar:
+        for member in tar:
+            if "/doc/src/sgml/html/" not in member.name or not member.name.endswith(".html"):
+                continue
+            f = tar.extractfile(member)
+            if f is None:
+                continue
+            (dest / Path(member.name).name).write_bytes(f.read())
+            extracted += 1
+    if not extracted:
+        raise RuntimeError("Aucune page HTML trouvée dans le tarball PostgreSQL.")
+    logger.info("Doc PostgreSQL extraite : %d pages → %s", extracted, dest)
+    return dest
+
+
+class _HTMLToText(HTMLParser):
+    """HTML → pseudo-markdown code-aware : `<hN>` → titres `#`, `<pre>` →
+    code-fences (contenu verbatim), navigation (`navheader`/`navfooter`)
+    et `<script>/<style>` ignorés. Compatible `chunk_code_doc(markdown=True)`."""
+
+    _BLOCK_TAGS = {"p", "div", "table", "ul", "ol", "dl", "dt", "dd", "blockquote", "tr"}
+
+    def __init__(self) -> None:
+        super().__init__(convert_charrefs=True)
+        self.parts: List[str] = []
+        # Pile du skip : on mémorise le tag ouvrant et on ne dépile que sur
+        # SA balise fermante (un `</table>` imbriqué ne déséquilibre rien).
+        self._skip_stack: List[str] = []
+        self._pre = 0
+        self._heading: int | None = None
+        self._hbuf: List[str] = []
+
+    def handle_starttag(self, tag: str, attrs) -> None:
+        if self._skip_stack:
+            if tag == self._skip_stack[-1]:
+                self._skip_stack.append(tag)  # imbrication du même tag
+            return
+        cls = dict(attrs).get("class", "") or ""
+        if tag in ("script", "style") or "navheader" in cls or "navfooter" in cls:
+            self._skip_stack.append(tag)
+            return
+        if tag == "pre":
+            self._pre += 1
+            self.parts.append("\n```\n")
+        elif len(tag) == 2 and tag[0] == "h" and tag[1].isdigit():
+            self._heading = int(tag[1])
+            self._hbuf = []
+        elif tag == "li":
+            self.parts.append("\n- ")
+        elif tag == "br":
+            self.parts.append("\n")
+        elif tag in ("td", "th"):
+            self.parts.append("  ")
+        elif tag in self._BLOCK_TAGS:
+            self.parts.append("\n")
+
+    def handle_endtag(self, tag: str) -> None:
+        if self._skip_stack:
+            if tag == self._skip_stack[-1]:
+                self._skip_stack.pop()
+            return
+        if tag == "pre":
+            self._pre = max(0, self._pre - 1)
+            self.parts.append("\n```\n")
+        elif self._heading is not None and tag == f"h{self._heading}":
+            title = re.sub(r"\s+", " ", "".join(self._hbuf)).strip()
+            title = re.sub(r"\s*#$", "", title)  # « # » du lien d'ancre PostgreSQL
+            self.parts.append(f"\n\n{'#' * self._heading} {title}\n\n")
+            self._heading = None
+        elif tag in self._BLOCK_TAGS:
+            self.parts.append("\n")
+
+    def handle_data(self, data: str) -> None:
+        if self._skip_stack:
+            return
+        if self._heading is not None:
+            self._hbuf.append(data)
+        elif self._pre:
+            self.parts.append(data)          # verbatim : code préservé
+        else:
+            self.parts.append(re.sub(r"[ \t]+", " ", data))
+
+    def text(self) -> str:
+        return "".join(self.parts)
+
+
+def html_to_text(raw: str) -> str:
+    """Convertit une page HTML en pseudo-markdown code-aware."""
+    parser = _HTMLToText()
+    parser.feed(raw)
+    return parser.text()
+
+
+def iter_postgres_docs(
+    pg_dir: Path, prefixes: Tuple[str, ...]
+) -> Iterator[Tuple[str, str, str]]:
+    """Itère (origine, texte, langage) sur les pages HTML PostgreSQL scopées."""
+    pg_dir = Path(pg_dir)
+    if not pg_dir.exists():
+        logger.warning("Doc PostgreSQL absente : %s", pg_dir)
+        return
+    for page in sorted(pg_dir.glob("*.html")):
+        stem = page.stem
+        if prefixes and not any(
+            stem == p or stem.startswith(f"{p}-") for p in prefixes
+        ):
+            continue
+        try:
+            raw = page.read_text(encoding="utf-8")
+        except (OSError, UnicodeDecodeError):
+            continue
+        yield f"postgres/{stem}", html_to_text(raw), "sql"
+
+
 # ─── Chunking code-aware ──────────────────────────────────────────────
 
 
@@ -425,11 +665,15 @@ def iter_source(
     name: str, *, bundle_dir: Path, categories: Tuple[str, ...],
     pydoc_modules: Tuple[str, ...], man_pages: Tuple[str, ...],
     mdn_dir: Path = DEFAULT_MDN_DIR, mdn_areas: Tuple[str, ...] = DEFAULT_MDN_AREAS,
+    docker_dir: Path = DEFAULT_DOCKER_DIR,
+    docker_areas: Tuple[str, ...] = DEFAULT_DOCKER_AREAS,
+    pg_dir: Path = DEFAULT_PG_DIR,
+    pg_prefixes: Tuple[str, ...] = DEFAULT_PG_PREFIXES,
 ) -> Iterator[Tuple[str, str, str, str]]:
     """Registre de sources → itère (origine, texte, source, langage).
 
-    Ajouter un langage = brancher une nouvelle source ici (PostgreSQL,
-    Docker…) ; le chunker, l'ingestion et l'index restent partagés.
+    Ajouter un langage = brancher une nouvelle source ici ; le chunker,
+    l'ingestion et l'index restent partagés.
     """
     if name == "python":
         for origin, text in iter_bundle_docs(bundle_dir, categories):
@@ -442,6 +686,12 @@ def iter_source(
     elif name == "mdn":
         for origin, text, language in iter_mdn_docs(mdn_dir, mdn_areas):
             yield origin, text, "mdn", language
+    elif name == "docker":
+        for origin, text, language in iter_docker_docs(docker_dir, docker_areas):
+            yield origin, text, "docker", language
+    elif name == "postgresql":
+        for origin, text, language in iter_postgres_docs(pg_dir, pg_prefixes):
+            yield origin, text, "postgresql", language
     else:
         raise ValueError(f"Source inconnue : {name!r} (dispo : {ALL_SOURCES})")
 
@@ -456,6 +706,10 @@ def build_index(
     man_pages: Tuple[str, ...],
     mdn_dir: Path = DEFAULT_MDN_DIR,
     mdn_areas: Tuple[str, ...] = DEFAULT_MDN_AREAS,
+    docker_dir: Path = DEFAULT_DOCKER_DIR,
+    docker_areas: Tuple[str, ...] = DEFAULT_DOCKER_AREAS,
+    pg_dir: Path = DEFAULT_PG_DIR,
+    pg_prefixes: Tuple[str, ...] = DEFAULT_PG_PREFIXES,
     max_files: int | None,
     max_chars: int,
 ) -> int:
@@ -469,6 +723,8 @@ def build_index(
             name, bundle_dir=bundle_dir, categories=categories,
             pydoc_modules=pydoc_modules, man_pages=man_pages,
             mdn_dir=mdn_dir, mdn_areas=mdn_areas,
+            docker_dir=docker_dir, docker_areas=docker_areas,
+            pg_dir=pg_dir, pg_prefixes=pg_prefixes,
         ):
             if max_files is not None and files >= max_files:
                 logger.info("Limite --max-files (%d) atteinte", max_files)
@@ -517,6 +773,16 @@ def main(argv: List[str] | None = None) -> int:
         "--mdn-areas", default=",".join(DEFAULT_MDN_AREAS),
         help="Aires MDN (sous files/en-us/web/) à ingérer (ex: javascript,css,html).",
     )
+    parser.add_argument("--docker-dir", default=str(DEFAULT_DOCKER_DIR))
+    parser.add_argument(
+        "--docker-areas", default=",".join(DEFAULT_DOCKER_AREAS),
+        help="Aires docker/docs (sous content/) à ingérer (ex: get-started,manuals,reference).",
+    )
+    parser.add_argument("--pg-dir", default=str(DEFAULT_PG_DIR))
+    parser.add_argument(
+        "--pg-prefixes", default=",".join(DEFAULT_PG_PREFIXES),
+        help="Préfixes de pages PostgreSQL à ingérer, ou 'all' pour tout.",
+    )
     parser.add_argument("--max-chars", type=int, default=MAX_CHARS)
     parser.add_argument("--max-files", type=int, default=None, help="Cap de docs (test rapide).")
     parser.add_argument("--min-chunks", type=int, default=1)
@@ -540,18 +806,31 @@ def main(argv: List[str] | None = None) -> int:
     )
     mdn_dir = Path(args.mdn_dir)
     mdn_areas = tuple(a.strip() for a in args.mdn_areas.split(",") if a.strip())
+    docker_dir = Path(args.docker_dir)
+    docker_areas = tuple(a.strip() for a in args.docker_areas.split(",") if a.strip())
+    pg_dir = Path(args.pg_dir)
+    pg_prefixes = (
+        () if args.pg_prefixes.strip().lower() == "all"
+        else tuple(p.strip() for p in args.pg_prefixes.split(",") if p.strip())
+    )
 
     # Les téléchargements ne se font que si la source concernée le requiert.
     if "python" in sources and not args.no_fetch and categories:
         fetch_python_text_bundle(bundle_dir)
     if "mdn" in sources and not args.no_fetch and mdn_areas:
         fetch_mdn_content(mdn_dir, mdn_areas)
+    if "docker" in sources and not args.no_fetch and docker_areas:
+        fetch_docker_docs(docker_dir, docker_areas)
+    if "postgresql" in sources and not args.no_fetch:
+        fetch_postgres_html(pg_dir)
 
     danann = Danann(compression=args.compression, use_reranker=False)
     total = build_index(
         danann, sources=sources, bundle_dir=bundle_dir, categories=categories,
         pydoc_modules=pydoc_modules, man_pages=man_pages,
         mdn_dir=mdn_dir, mdn_areas=mdn_areas,
+        docker_dir=docker_dir, docker_areas=docker_areas,
+        pg_dir=pg_dir, pg_prefixes=pg_prefixes,
         max_files=args.max_files, max_chars=args.max_chars,
     )
 
