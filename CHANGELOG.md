@@ -14,6 +14,31 @@ GitHub sortira sans notes (cf. mémoire `gungnir-release-changelog-gotcha`).
 
 ## [Non publié]
 
+### Ajouté — sources Docker + PostgreSQL (Phase 2C, passe 3 — registre complet)
+Deux nouveaux plugins du registre de sources, qui **bouclent les sources
+prévues de la Phase 2C** (l'index combiné couvre désormais 9 langages) :
+- **`docker`** : docs officielles Docker (`docker/docs`, sparse clone limité à
+  `content/{get-started,manuals,reference}`, ~48 Mo, 922 pages, `--docker-areas`).
+  Markdown Hugo : front-matter extrait (titre préfixé), shortcodes
+  `{{< … >}}`/`{{% … %}}` nettoyés ; chunker markdown réutilisé tel quel →
+  langage `docker`.
+- **`postgresql`** : doc HTML **pré-buildée** du tarball docs officiel
+  (`postgresql-X.Y-docs.tar.gz`, ~4 Mo, auto-suit la dernière version stable —
+  ⚠️ le tarball *source* ne contient plus que les SGML). Convertisseur
+  HTML→pseudo-markdown code-aware (`<hN>` → titres `#` avec ancre nettoyée,
+  `<pre>` → code-fences verbatim, nav/script/style skippés via une pile de
+  tags) compatible `chunk_code_doc(markdown=True)`. Pages scopées par préfixe
+  (`--pg-prefixes` : tutorial, sql-*, datatype, queries, ddl, dml, functions,
+  indexes, textsearch, performance) → langage `sql`.
+- Build réel : index combiné 5 sources = **46 569 chunks / 9 langages**
+  (python 7 907, bash 356, shell 557, git 359, js 10 331, css 11 627,
+  html 2 875, **docker 9 723, sql 2 834**), int8 ×4.0, ~17,6 Mo RAM.
+  Retrieval FR validé 6/6 (volumes Docker, Dockerfile, jointures SQL,
+  index PostgreSQL, git/CSS sans régression).
+- +9 tests CI-safe (parsing Hugo, chunking, câblage registre, HTML→texte,
+  filtre préfixes, résolution version, extraction tarball — fixtures tmp,
+  zéro réseau). **389 tests.**
+
 ### Ajouté — source MDN : javascript / css / html (Phase 2C, passe 2)
 Nouveau plugin `mdn` du registre de sources : docs web officielles **MDN**
 (`mdn/content`) → langages `javascript`, `css`, `html` dans le même index
