@@ -115,7 +115,7 @@ Six modules nommés d'après la mythologie celtique :
 - Interfaces CLI + Telegram (streaming), `.env` auto-load, backends Danann branchables (memory / Supabase pgvector), scripts d'ingestion
 - **API OpenAI-compatible** (`/v1/chat/completions`, `/v1/models`) : branchable tel quel comme provider custom dans un client OpenAI (dont Gungnir)
 - **Corpus de documentation code multi-langage** (Phases 2B/2C) : registre de sources (Python officiel + pydoc, pages man bash/git/CLI), chunker code-aware, index `int8` interrogeable en FR
-- **380 tests** (pytest), 6 workflows CI (tests, version-sync, release, brigid-train, kg-build, docker-build)
+- **389 tests** (pytest), 6 workflows CI (tests, version-sync, release, brigid-train, kg-build, docker-build)
 
 ### Performances mesurées
 
@@ -266,11 +266,19 @@ en FR** (embedder multilingue, Phase 2A). Sources actuelles :
 - **`mdn`** : docs web officielles **MDN** (`mdn/content`, sparse clone git
   limité à `files/en-us/web/`) → langages `javascript`/`css`/`html`. Markdown :
   front-matter + macros Kuma nettoyés, sections sur titres `#` hors code-fences.
+- **`docker`** : docs officielles Docker (`docker/docs`, sparse clone limité à
+  `content/{get-started,manuals,reference}`) → langage `docker`. Markdown Hugo :
+  front-matter + shortcodes `{{< … >}}`/`{{% … %}}` nettoyés.
+- **`postgresql`** : doc HTML **pré-buildée** du tarball docs officiel
+  (`postgresql-X.Y-docs.tar.gz`, auto-suit la dernière stable) → langage `sql`.
+  HTML converti en pseudo-markdown code-aware (`<pre>` → fences, `<hN>` →
+  titres `#`), pages scopées par préfixe (`--pg-prefixes`).
 
 ```bash
-# Multi-langage : Python complet (avec la stdlib) + man (bash/git/CLI) + MDN (js/css/html)
+# Multi-langage complet : Python (avec stdlib) + man + MDN + Docker + PostgreSQL
 .venv-uv/bin/python scripts/ingest_code_docs.py \
-    --sources python,man,mdn --categories tutorial,library,howto,faq \
+    --sources python,man,mdn,docker,postgresql \
+    --categories tutorial,library,howto,faq \
     --output data/models/index_code
 
 # Python scopé seul (rapide, sans library/)
@@ -280,8 +288,7 @@ en FR** (embedder multilingue, Phase 2A). Sources actuelles :
 MORRIGAN_INDEX=data/models/index_code .venv-uv/bin/python -m interfaces.api
 ```
 
-À venir : PostgreSQL (sql), Docker. Docs téléchargées et
-index sont **gitignorés** (régénérables via le script).
+Docs téléchargées et index sont **gitignorés** (régénérables via le script).
 
 ### Servir un index compressé persisté
 
