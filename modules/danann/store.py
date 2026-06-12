@@ -282,13 +282,22 @@ class Danann(MorriganModule):
     def _candidates_from(
         self, idx: np.ndarray, base_scores: np.ndarray, query_tokens: Set[str]
     ) -> List[Tuple[str, float, Dict]]:
-        """Construit la liste (texte, score+boost lexical, meta) triée."""
+        """Construit la liste (texte, score+boost lexical, meta) triée.
+
+        Le cosinus PUR (avant boost lexical) est exposé dans
+        meta["score_cosine"] : c'est lui que le gate RAG strict de
+        Scáthach doit lire — le score boosté (+0.30 max) ferait passer
+        des hors-corpus à recouvrement lexical accidentel. La meta est
+        copiée pour ne pas polluer l'index partagé.
+        """
         candidates: List[Tuple[str, float, Dict]] = []
         for j, i in enumerate(idx):
-            score = float(base_scores[j])
+            cosine = float(base_scores[j])
+            score = cosine
             if query_tokens:
                 score += min(0.30, 0.08 * len(query_tokens & _tokenize(self.chunks[i])))
-            candidates.append((self.chunks[i], score, self.metadata[i]))
+            meta = {**self.metadata[i], "score_cosine": cosine}
+            candidates.append((self.chunks[i], score, meta))
         candidates.sort(key=lambda c: c[1], reverse=True)
         return candidates
 
@@ -434,15 +443,19 @@ class Danann(MorriganModule):
             # encode) → le produit scalaire EST le cosinus. Plus besoin de
             # recalculer les normes du corpus a chaque requete. Coherent avec
             # les chemins int8/binary/IVF qui font deja un dot brut.
-            scores = self.embeddings @ query_vec
+            sims = self.embeddings @ query_vec
+            scores = sims
             if query_tokens:
                 boost = np.zeros(len(self.chunks), dtype=np.float32)
                 for i, chunk in enumerate(self.chunks):
                     boost[i] = min(0.30, 0.08 * len(query_tokens & _tokenize(chunk)))
-                scores = scores + boost
+                scores = sims + boost
             top_indices = np.argsort(scores)[::-1][:pre_k]
+            # Cosinus pur dans la meta (copiée) — même contrat que
+            # _candidates_from, pour le gate RAG strict de Scáthach.
             candidates = [
-                (self.chunks[i], float(scores[i]), self.metadata[i])
+                (self.chunks[i], float(scores[i]),
+                 {**self.metadata[i], "score_cosine": float(sims[i])})
                 for i in top_indices
             ]
         else:

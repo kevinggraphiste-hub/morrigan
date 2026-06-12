@@ -118,12 +118,14 @@ class CrossEncoderReranker:
             logger.error("Erreur prediction reranker: %s", e)
             return candidates
 
-        # Recombiner avec les scores cross-encoder
+        # Recombiner avec les scores cross-encoder. Si Danann a déjà posé
+        # le cosinus PUR dans la meta (cf. store._candidates_from), on le
+        # préserve — `cosine_score` ici est le score boosté lexicalement.
         reranked = []
         for i, (text, cosine_score, meta) in enumerate(candidates):
             enriched_meta = {
                 **meta,
-                "score_cosine": cosine_score,
+                "score_cosine": meta.get("score_cosine", cosine_score),
                 "score_reranker": float(scores[i]),
             }
             reranked.append((text, float(scores[i]), enriched_meta))
