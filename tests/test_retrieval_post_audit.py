@@ -130,7 +130,7 @@ def test_retrieval_opts_defaults(monkeypatch):
     opts = _retrieval_opts(None)
     assert opts == {
         "use_reranker": False, "ann": "flat",
-        "ivf_probes": None, "shard_by": None,
+        "ivf_probes": None, "shard_by": "language",
     }
     # Valeurs invalides → replis silencieux, jamais d'exception au boot.
     monkeypatch.setenv("MORRIGAN_ANN", "nimporte")
@@ -138,6 +138,15 @@ def test_retrieval_opts_defaults(monkeypatch):
     opts = _retrieval_opts(None)
     assert opts["ann"] == "flat"
     assert opts["ivf_probes"] is None
+    # Shards : ON par défaut (language), opt-out explicite via off/none.
+    monkeypatch.setenv("MORRIGAN_SHARD_BY", "off")
+    assert _retrieval_opts(None)["shard_by"] is None
+    monkeypatch.setenv("MORRIGAN_SHARD_BY", "none")
+    assert _retrieval_opts(None)["shard_by"] is None
+    monkeypatch.setenv("MORRIGAN_SHARD_BY", "domain")
+    assert _retrieval_opts(None)["shard_by"] == "domain"
+    monkeypatch.setenv("MORRIGAN_SHARD_BY", "")
+    assert _retrieval_opts(None)["shard_by"] == "language"
     # L'argument explicite garde la priorité sur l'env.
     monkeypatch.setenv("MORRIGAN_RERANKER", "on")
     assert _retrieval_opts(False)["use_reranker"] is False
@@ -169,6 +178,7 @@ def test_build_danann_env_wiring(tmp_path, monkeypatch):
     assert d.ann == "ivf"
     assert d.ivf_probes == 2
     assert d.reranker is None            # défaut post-audit : OFF
+    assert d.shard_by == "language"      # défaut : shards ON (dégrade seul)
     assert d.count() == 10
 
     monkeypatch.setenv("MORRIGAN_RERANKER", "on")
