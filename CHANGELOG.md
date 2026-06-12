@@ -28,8 +28,8 @@ sans clé), ce qui corrige les pièges cross-langage mesurés par l'audit
   `compression="none"` ou avec <2 valeurs distinctes, désactivation propre
   avec warning ;
 - shards reconstruits lazy, invalidés à chaque `index()` (comme l'IVF) ;
-  `shard_by` exposé dans `status()`. `.env.example` documenté. +7 tests
-  CI-safe.
+  `shard_by` exposé dans `get_capabilities()`. `.env.example` documenté.
+  +7 tests CI-safe.
 
 ### Modifié — retrieval post-audit : reranker réparé (OFF par défaut) + IVF exposé
 Chantiers 1 et 3 de l'audit (`docs/audit-retrieval-2026-06-12.md`) :
