@@ -83,8 +83,8 @@ Le tout en CPU local, sans appeler un seul LLM externe.
 
 ## Compteurs sympas
 
-- **389 tests pytest verts**, 0 xfailed
-- **~48 PRs mergées**, CI verte de bout en bout
+- **396 tests pytest verts**, 0 xfailed
+- **~50 PRs mergées**, CI verte de bout en bout
 - **Déterminisme parfait local ↔ CI** sur l'entraînement Brigid (seed 42)
 - Gros corpus encyclopédique réel tenu **sur PC modeste** : index
   Wikipédia int8 chargé en 0.29 s, RAM réduite ×4

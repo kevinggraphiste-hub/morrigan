@@ -14,6 +14,25 @@ GitHub sortira sans notes (cf. mémoire `gungnir-release-changelog-gotcha`).
 
 ## [Non publié]
 
+### Modifié — retrieval post-audit : reranker réparé (OFF par défaut) + IVF exposé
+Chantiers 1 et 3 de l'audit (`docs/audit-retrieval-2026-06-12.md`) :
+- **Reranker réparé** : `CrossEncoder` instancié `device="cpu"` (avant : sans
+  device → tentative CUDA sur GPU non supporté → erreur silencieuse, candidats
+  rendus non re-classés) ; passages **tronqués à 512 chars** avant scoring
+  (`max_passage_chars`, coût ~linéaire en longueur) ; fenêtre de candidats
+  re-classés **bornée** (`Danann(rerank_window=8)`, le coût étant ~117 ms/paire
+  CPU mesuré).
+- **Reranker OFF par défaut au runtime** (`build_danann`) : l'audit ne mesure
+  aucun gain fiable du modèle ms-marco (anglais) sur requêtes FR (12-14/16 vs
+  13/16 baseline) pour ~300 ms+/requête. `MORRIGAN_RERANKER=on` pour réactiver
+  (ré-évaluation prévue Phase 2D).
+- **IVF exposé au runtime** : `MORRIGAN_ANN=ivf` (recherche sous-linéaire,
+  recall@5 0.925 @ ~6 ms vs 56 ms flat sur 46k chunks) + `MORRIGAN_IVF_PROBES`
+  (compromis recall/latence ; 64 → recall 0.988 @ 13 ms). `Danann(ivf_probes=…)`
+  câblé jusqu'à `IVFIndex`. `.env.example` documenté.
+- +7 tests CI-safe (stubs embedder/cross-encoder, index int8 synthétiques).
+  **396 tests.**
+
 ### Documentation — audit latence retrieval mesuré (2026-06-12)
 `docs/audit-retrieval-2026-06-12.md` + scripts de mesure reproductibles
 (`docs/audit-retrieval-2026-06-12/`). Verdicts chiffrés sur l'index code
