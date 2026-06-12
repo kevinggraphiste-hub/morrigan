@@ -7,11 +7,19 @@ avec un modele cross-encoder plus precis (mais plus lent).
 Phase 2 : cross-encoder/ms-marco-MiniLM-L-6-v2 (~22 Mo, CPU)
    - Input : paire (query, chunk_text)
    - Output : score de pertinence [-inf, +inf] (plus haut = plus pertinent)
-   - Latence : ~5-15 ms par paire sur CPU i5
+   - Latence MESURÉE : ~117 ms/paire sur le CPU dev (i5-10210U, chunks
+     ~570 chars) — cf. docs/audit-retrieval-2026-06-12.md. La troncature
+     des passages (`max_passage_chars`) divise ce coût par ~2-3.
 
-Le cross-encoder est BEAUCOUP plus precis que le cosine similarity
-car il voit la query ET le chunk ensemble (attention croisee),
-alors que le bi-encoder les encode separement.
+Le cross-encoder voit la query ET le chunk ensemble (attention croisée),
+là où le bi-encoder les encode séparément. ⚠️ ms-marco est un modèle
+**anglais** : l'audit 2026-06-12 ne mesure aucun gain fiable sur des
+requêtes FR → désactivé par défaut au runtime (cf. core/knowledge.py).
+
+Post-audit : `device="cpu"` par défaut — sans device explicite,
+sentence-transformers choisit CUDA si disponible, ce qui plantait
+silencieusement sur GPU non supporté (les candidats repartaient
+non re-classés).
 """
 
 import logging
@@ -34,12 +42,23 @@ class CrossEncoderReranker:
     # - Qualite : NDCG@10 ~0.39 sur MS MARCO (excellent pour sa taille)
     DEFAULT_MODEL = "cross-encoder/ms-marco-MiniLM-L-6-v2"
 
-    def __init__(self, model_name: Optional[str] = None):
+    def __init__(
+        self,
+        model_name: Optional[str] = None,
+        device: str = "cpu",
+        max_passage_chars: Optional[int] = 512,
+    ):
         self.model_name = model_name or self.DEFAULT_MODEL
+        self.device = device
+        # Troncature des passages envoyés au cross-encoder. Coût quasi
+        # linéaire en longueur de texte ; 512 chars suffisent au modèle
+        # pour juger la pertinence (mesuré : ~2× plus rapide, cf. audit).
+        # None = passages complets.
+        self.max_passage_chars = max_passage_chars
         self.model = None
         logger.info(
-            "CrossEncoderReranker cree (modele: %s, non charge)",
-            self.model_name,
+            "CrossEncoderReranker cree (modele: %s, device=%s, non charge)",
+            self.model_name, self.device,
         )
 
     def load(self) -> bool:
@@ -47,7 +66,7 @@ class CrossEncoderReranker:
         try:
             from sentence_transformers import CrossEncoder
 
-            self.model = CrossEncoder(self.model_name)
+            self.model = CrossEncoder(self.model_name, device=self.device)
             logger.info("Reranker '%s' charge", self.model_name)
             return True
         except ImportError:
@@ -88,8 +107,10 @@ class CrossEncoderReranker:
                 )
                 return candidates
 
-        # Construire les paires (query, chunk_text) pour le cross-encoder
-        pairs = [(query, text) for text, _, _ in candidates]
+        # Construire les paires (query, chunk_text) pour le cross-encoder,
+        # passages tronqués (cf. max_passage_chars).
+        cut = self.max_passage_chars
+        pairs = [(query, text[:cut] if cut else text) for text, _, _ in candidates]
 
         try:
             scores = self.model.predict(pairs)

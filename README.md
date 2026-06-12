@@ -115,7 +115,7 @@ Six modules nommés d'après la mythologie celtique :
 - Interfaces CLI + Telegram (streaming), `.env` auto-load, backends Danann branchables (memory / Supabase pgvector), scripts d'ingestion
 - **API OpenAI-compatible** (`/v1/chat/completions`, `/v1/models`) : branchable tel quel comme provider custom dans un client OpenAI (dont Gungnir)
 - **Corpus de documentation code multi-langage** (Phases 2B/2C) : registre de sources (Python officiel + pydoc, pages man bash/git/CLI), chunker code-aware, index `int8` interrogeable en FR
-- **389 tests** (pytest), 6 workflows CI (tests, version-sync, release, brigid-train, kg-build, docker-build)
+- **396 tests** (pytest), 6 workflows CI (tests, version-sync, release, brigid-train, kg-build, docker-build)
 
 ### Performances mesurées
 

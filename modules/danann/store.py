@@ -70,12 +70,18 @@ class Danann(MorriganModule):
         top_k: int = 5,
         use_reranker: bool = True,
         reranker_top_k: int = 3,
+        rerank_window: int = 8,
         compression: str = "none",
         ann: str = "flat",
+        ivf_probes: Optional[int] = None,
     ):
         self.backend = backend
         self.top_k = top_k
         self.reranker_top_k = reranker_top_k
+        # Nb max de candidats passés au cross-encoder (post-audit : son coût
+        # est ~linéaire en paires, ~117 ms/paire CPU ; au-delà de ~8 le gain
+        # qualité mesuré est nul voire négatif — cf. audit 2026-06-12).
+        self.rerank_window = rerank_window
 
         # Phase 4 : compression de l'index mémoire.
         #   "none"   : float32 (exact, défaut historique)
@@ -92,6 +98,9 @@ class Danann(MorriganModule):
         if ann not in ("flat", "ivf"):
             raise ValueError(f"ann inconnu : {ann!r}")
         self.ann = ann
+        # n_probe explicite (None = heuristique IVFIndex ~C/8). L'audit
+        # 2026-06-12 mesure recall@5 0.925 à C/8 et 0.988 à 64 probes.
+        self.ivf_probes = ivf_probes
         self._ivf: Optional[IVFIndex] = None
 
         # Store en memoire (toujours disponible en fallback)
@@ -166,9 +175,9 @@ class Danann(MorriganModule):
         if self.ann != "ivf" or self._ivf is not None:
             return
         if self.compression == "none" and self.embeddings is not None:
-            self._ivf = IVFIndex.build(self.embeddings)
+            self._ivf = IVFIndex.build(self.embeddings, n_probe=self.ivf_probes)
         elif self.compression != "none" and self._int8 is not None:
-            self._ivf = IVFIndex.build_from_int8(self._int8)
+            self._ivf = IVFIndex.build_from_int8(self._int8, n_probe=self.ivf_probes)
         else:
             return
         logger.info(
@@ -364,10 +373,11 @@ class Danann(MorriganModule):
                     "Filtre type '%s' sans candidat → repli sur non-filtré", chunk_type
                 )
 
-        # Phase 2 : reranking cross-encoder sur les candidats
+        # Phase 2 : reranking cross-encoder — fenêtre bornée (rerank_window),
+        # le coût du cross-encoder étant ~linéaire en nombre de paires.
         if self.reranker and candidates:
             candidates = self.reranker.rerank(
-                query, candidates, top_k=k
+                query, candidates[: self.rerank_window], top_k=k
             )
             logger.info(
                 "Danann: reranker applique sur %d candidats",
