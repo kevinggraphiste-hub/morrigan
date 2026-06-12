@@ -14,7 +14,17 @@ GitHub sortira sans notes (cf. mémoire `gungnir-release-changelog-gotcha`).
 
 ## [Non publié]
 
-### Ajouté — sources Docker + PostgreSQL (Phase 2C, passe 3 — registre complet)
+### Documentation — audit latence retrieval mesuré (2026-06-12)
+`docs/audit-retrieval-2026-06-12.md` + scripts de mesure reproductibles
+(`docs/audit-retrieval-2026-06-12/`). Verdicts chiffrés sur l'index code
+46 569 chunks : le goulot du retrieval est le **reranker** (1 753 ms p50 =
+96 % du pipeline — et il ne tourne même pas en prod : CUDA error silencieuse
+sur GPU non supporté) ; la recherche vectorielle vaut 56 ms ; l'**IVF**
+fonctionne (recall 0.988 @ 13,3 ms à 64 probes) mais n'est **jamais branché
+au runtime** ; le **mini-RAG fragmenté par langage** (routage centroïde
+top-1) gagne en *qualité* (15/16 vs 13/16, 0 erreur de routage), pas en
+vitesse ; le cross-encoder anglais n'apporte pas de gain fiable en FR.
+Fonde les chantiers retrieval post-audit (reranker, IVF, shards).
 Deux nouveaux plugins du registre de sources, qui **bouclent les sources
 prévues de la Phase 2C** (l'index combiné couvre désormais 9 langages) :
 - **`docker`** : docs officielles Docker (`docker/docs`, sparse clone limité à
