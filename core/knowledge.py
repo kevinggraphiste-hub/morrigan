@@ -52,10 +52,13 @@ def _retrieval_opts(use_reranker: bool | None) -> dict:
       pour le réactiver (ré-évaluation Phase 2D).
     - `MORRIGAN_ANN=ivf` active la recherche sous-linéaire (IVF),
       `MORRIGAN_IVF_PROBES` règle le compromis recall/latence.
-    - `MORRIGAN_SHARD_BY=language` active le mini-RAG fragmenté : recherche
-      restreinte au shard routé (centroïde top-1, repli monolithique si le
-      routeur hésite). Gain mesuré = qualité sur le corpus code (15/16 vs
-      13/16, corrige les pièges cross-langage type « tableau » FR).
+    - Mini-RAG fragmenté **ON par défaut** (`MORRIGAN_SHARD_BY=language`) :
+      recherche restreinte au shard routé (centroïde top-1, repli
+      monolithique si le routeur hésite). Gain mesuré = qualité sur le
+      corpus code (15/16 vs 13/16, corrige les pièges cross-langage type
+      « tableau » FR). Sans risque sur les autres index : <2 valeurs de
+      `language` ou index non-int8 → désactivation propre par Danann.
+      `MORRIGAN_SHARD_BY=off` (ou `none`) pour désactiver explicitement.
     """
     if use_reranker is None:
         use_reranker = os.environ.get(RERANKER_ENV, "off").strip().lower() == "on"
@@ -70,7 +73,9 @@ def _retrieval_opts(use_reranker: bool | None) -> dict:
             ivf_probes = max(1, int(probes_raw))
         except ValueError:
             logger.warning("%s=%r invalide — ignoré", IVF_PROBES_ENV, probes_raw)
-    shard_by = os.environ.get(SHARD_BY_ENV, "").strip() or None
+    shard_by: str | None = os.environ.get(SHARD_BY_ENV, "language").strip() or "language"
+    if shard_by.lower() in ("off", "none"):
+        shard_by = None
     return {
         "use_reranker": use_reranker, "ann": ann,
         "ivf_probes": ivf_probes, "shard_by": shard_by,

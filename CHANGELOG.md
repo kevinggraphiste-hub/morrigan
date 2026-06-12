@@ -14,6 +14,16 @@ GitHub sortira sans notes (cf. mémoire `gungnir-release-changelog-gotcha`).
 
 ## [Non publié]
 
+### Modifié — mini-RAG fragmenté **ON par défaut** (ouverture Phase 2D)
+`MORRIGAN_SHARD_BY` vaut désormais `language` par défaut (vide = `language`
+aussi ; `off`/`none` = opt-out explicite). Justification : gain qualité
+mesuré (15/16 vs 13/16, 0 erreur de routage) et garde-fous déjà en place —
+index sans clé `language` (<2 valeurs) ou non-int8 → désactivation propre
+par Danann, requête ambiguë → repli monolithique. IVF reste `flat` par
+défaut (le retrieval n'est pas le goulot : 56 ms vs ~12 s de génération ;
+l'IVF échange du recall contre une vitesse invisible ici) et le reranker
+reste `off` (aucun gain FR mesuré — ré-évaluation multilingue prévue en 2D).
+
 ### Ajouté — mini-RAG fragmenté par langage (chantier 2 post-audit)
 Partition de l'index par clé de métadonnée (`Danann(shard_by="language")`,
 runtime via `MORRIGAN_SHARD_BY`) avec **routage par centroïde de shard
