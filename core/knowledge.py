@@ -35,6 +35,7 @@ INDEX_ENV = "MORRIGAN_INDEX"
 ANN_ENV = "MORRIGAN_ANN"               # "flat" (défaut) | "ivf"
 IVF_PROBES_ENV = "MORRIGAN_IVF_PROBES"  # entier, optionnel (défaut ~C/8)
 RERANKER_ENV = "MORRIGAN_RERANKER"      # "on" | "off" (défaut)
+SHARD_BY_ENV = "MORRIGAN_SHARD_BY"      # clé de métadonnée (ex. "language")
 
 
 def _is_valid_index(path: Path) -> bool:
@@ -51,6 +52,10 @@ def _retrieval_opts(use_reranker: bool | None) -> dict:
       pour le réactiver (ré-évaluation Phase 2D).
     - `MORRIGAN_ANN=ivf` active la recherche sous-linéaire (IVF),
       `MORRIGAN_IVF_PROBES` règle le compromis recall/latence.
+    - `MORRIGAN_SHARD_BY=language` active le mini-RAG fragmenté : recherche
+      restreinte au shard routé (centroïde top-1, repli monolithique si le
+      routeur hésite). Gain mesuré = qualité sur le corpus code (15/16 vs
+      13/16, corrige les pièges cross-langage type « tableau » FR).
     """
     if use_reranker is None:
         use_reranker = os.environ.get(RERANKER_ENV, "off").strip().lower() == "on"
@@ -65,7 +70,11 @@ def _retrieval_opts(use_reranker: bool | None) -> dict:
             ivf_probes = max(1, int(probes_raw))
         except ValueError:
             logger.warning("%s=%r invalide — ignoré", IVF_PROBES_ENV, probes_raw)
-    return {"use_reranker": use_reranker, "ann": ann, "ivf_probes": ivf_probes}
+    shard_by = os.environ.get(SHARD_BY_ENV, "").strip() or None
+    return {
+        "use_reranker": use_reranker, "ann": ann,
+        "ivf_probes": ivf_probes, "shard_by": shard_by,
+    }
 
 
 def build_danann(

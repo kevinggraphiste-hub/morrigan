@@ -14,6 +14,23 @@ GitHub sortira sans notes (cf. mémoire `gungnir-release-changelog-gotcha`).
 
 ## [Non publié]
 
+### Ajouté — mini-RAG fragmenté par langage (chantier 2 post-audit)
+Partition de l'index par clé de métadonnée (`Danann(shard_by="language")`,
+runtime via `MORRIGAN_SHARD_BY`) avec **routage par centroïde de shard
+top-1** : la recherche est restreinte aux lignes du shard routé (+ chunks
+sans clé), ce qui corrige les pièges cross-langage mesurés par l'audit
+(« trier un tableau en JS » → `<table>` HTML) — **15/16 bonnes réponses vs
+13/16 monolithique, 0 erreur de routage** sur le jeu FR. Garde-fous :
+- **repli monolithique si le routeur hésite** (écart top1-top2 des centroïdes
+  sous `shard_margin`, défaut 0.003) — jamais de faux « je ne sais pas » en
+  RAG strict ;
+- requiert un index **int8/binary** (re-score via codes int8) ; en mode
+  `compression="none"` ou avec <2 valeurs distinctes, désactivation propre
+  avec warning ;
+- shards reconstruits lazy, invalidés à chaque `index()` (comme l'IVF) ;
+  `shard_by` exposé dans `status()`. `.env.example` documenté. +7 tests
+  CI-safe.
+
 ### Modifié — retrieval post-audit : reranker réparé (OFF par défaut) + IVF exposé
 Chantiers 1 et 3 de l'audit (`docs/audit-retrieval-2026-06-12.md`) :
 - **Reranker réparé** : `CrossEncoder` instancié `device="cpu"` (avant : sans
