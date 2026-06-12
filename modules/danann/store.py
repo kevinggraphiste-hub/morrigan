@@ -74,6 +74,8 @@ class Danann(MorriganModule):
         compression: str = "none",
         ann: str = "flat",
         ivf_probes: Optional[int] = None,
+        shard_by: Optional[str] = None,
+        shard_margin: float = 0.003,
     ):
         self.backend = backend
         self.top_k = top_k
@@ -102,6 +104,22 @@ class Danann(MorriganModule):
         # 2026-06-12 mesure recall@5 0.925 à C/8 et 0.988 à 64 probes.
         self.ivf_probes = ivf_probes
         self._ivf: Optional[IVFIndex] = None
+
+        # Mini-RAG fragmenté (audit 2026-06-12, étape 3) : partition de
+        # l'index par valeur d'une clé de métadonnée (ex. "language"),
+        # routage par centroïde de shard top-1. Gain mesuré = QUALITÉ
+        # (corrige les pièges cross-langage type « tableau » FR), pas
+        # latence. `shard_margin` : si l'écart de similarité entre les 2
+        # meilleurs centroïdes est sous ce seuil, le routeur s'abstient →
+        # recherche monolithique (marges mesurées : requêtes nettes
+        # 0.0032-0.034 ; un seuil haut re-monolithise tout). Nécessite la
+        # compression int8/binary (re-score via codes int8).
+        self.shard_by = shard_by
+        self.shard_margin = shard_margin
+        # (valeurs, centroïdes (S, D), listes de lignes, lignes sans clé)
+        self._shards: Optional[
+            Tuple[List[Any], np.ndarray, List[np.ndarray], np.ndarray]
+        ] = None
 
         # Store en memoire (toujours disponible en fallback)
         self.chunks: List[str] = []
@@ -185,6 +203,82 @@ class Danann(MorriganModule):
             self._ivf.n_clusters, len(self._ivf),
         )
 
+    def _ensure_shards(self) -> None:
+        """Construit la partition par shard (lazy) — int8 requis."""
+        if not self.shard_by or self._shards is not None:
+            return
+        if self._int8 is None:
+            # Mode "none" (corpus curaté réembeddé) : la fragmentation n'a
+            # pas d'intérêt à cette échelle et le re-score par lignes est
+            # câblé sur les codes int8 → désactivation propre.
+            logger.warning(
+                "shard_by=%r requiert un index int8/binary — shards désactivés",
+                self.shard_by,
+            )
+            self.shard_by = None
+            return
+        rows_by: Dict[Any, List[int]] = {}
+        keyless: List[int] = []
+        for i, meta in enumerate(self.metadata):
+            value = meta.get(self.shard_by)
+            (keyless if value is None else rows_by.setdefault(value, [])).append(i)
+        if len(rows_by) < 2:
+            logger.warning(
+                "shard_by=%r : %d valeur(s) distincte(s) — shards désactivés",
+                self.shard_by, len(rows_by),
+            )
+            self.shard_by = None
+            return
+        values = sorted(rows_by)
+        lists = [np.asarray(rows_by[v], dtype=np.int64) for v in values]
+        centroids = []
+        for rows in lists:
+            codes = self._int8.codes[rows].astype(np.float32)
+            sc = self._int8.scale
+            scale = sc[rows][:, None] if isinstance(sc, np.ndarray) else sc
+            c = (codes * scale).mean(axis=0)
+            norm = np.linalg.norm(c)
+            centroids.append(c / norm if norm > 0 else c)
+        self._shards = (
+            values, np.stack(centroids), lists,
+            np.asarray(keyless, dtype=np.int64),
+        )
+        logger.info(
+            "Danann shards construits : %d shards sur %r (+%d chunks sans clé)",
+            len(values), self.shard_by, len(keyless),
+        )
+
+    def _route_shard_rows(self, q: np.ndarray) -> Optional[np.ndarray]:
+        """Lignes du shard routé (top-1 centroïde) + lignes sans clé.
+
+        Renvoie None si le routeur s'abstient (écart top1-top2 sous
+        `shard_margin`) → l'appelant retombe sur la recherche monolithique,
+        pour ne jamais provoquer de faux « je ne sais pas » en RAG strict.
+        """
+        assert self._shards is not None
+        values, centroids, lists, keyless = self._shards
+        sims = centroids @ q
+        order = np.argsort(sims)[::-1]
+        if float(sims[order[0]] - sims[order[1]]) < self.shard_margin:
+            logger.debug("Routeur shard indécis → recherche monolithique")
+            return None
+        rows = lists[order[0]]
+        return np.concatenate([rows, keyless]) if keyless.size else rows
+
+    def _coarse_on_rows(
+        self, q: np.ndarray, rows: np.ndarray, k: int
+    ) -> Tuple[np.ndarray, np.ndarray]:
+        """Top-k int8 restreint à un sous-ensemble de lignes (indices globaux)."""
+        assert self._int8 is not None
+        codes = self._int8.codes[rows].astype(np.float32)
+        sc = self._int8.scale
+        scale = sc[rows] if isinstance(sc, np.ndarray) else sc
+        scores = (codes @ q) * scale
+        kk = min(k, rows.shape[0])
+        local = np.argpartition(scores, -kk)[-kk:]
+        local = local[np.argsort(scores[local])[::-1]]
+        return rows[local], scores[local]
+
     def _candidates_from(
         self, idx: np.ndarray, base_scores: np.ndarray, query_tokens: Set[str]
     ) -> List[Tuple[str, float, Dict]]:
@@ -252,8 +346,10 @@ class Danann(MorriganModule):
                 else:
                     self._binary.extend(new_arr)
 
-        # Nouveau contenu → l'IVF (s'il existe) est périmé, rebâti au search.
+        # Nouveau contenu → IVF et shards (s'ils existent) sont périmés,
+        # rebâtis au prochain search.
         self._ivf = None
+        self._shards = None
         self.chunks.extend(texts)
         self.metadata.extend(metadata)
 
@@ -305,7 +401,23 @@ class Danann(MorriganModule):
         # score cosine proche mais un seul mentionne explicitement le sujet.
         query_tokens = _tokenize(query)
 
-        if self.ann == "ivf":
+        # Mini-RAG fragmenté : routage par shard AVANT la recherche. Si le
+        # routeur tranche (marge suffisante), la recherche est restreinte
+        # aux lignes du shard (+ lignes sans clé) ; sinon, chemins
+        # monolithiques habituels ci-dessous.
+        shard_rows: Optional[np.ndarray] = None
+        if self.shard_by:
+            self._ensure_shards()
+            if self.shard_by and self._shards is not None:
+                shard_rows = self._route_shard_rows(
+                    np.asarray(query_emb, dtype=np.float32)
+                )
+
+        if shard_rows is not None:
+            q = np.asarray(query_emb, dtype=np.float32)
+            cand_idx, base_scores = self._coarse_on_rows(q, shard_rows, pre_k)
+            candidates = self._candidates_from(cand_idx, base_scores, query_tokens)
+        elif self.ann == "ivf":
             # Recherche sous-linéaire : IVF gather candidats → boost lexical.
             # Re-score float (non compressé) ou int8 (compressé) selon le mode.
             self._ensure_ann()
@@ -530,6 +642,7 @@ class Danann(MorriganModule):
             "backend": self.backend,
             "compression": self.compression,
             "ann": self.ann,
+            "shard_by": self.shard_by,
             "reranker": "on" if self.reranker else "off",
             "capabilities": [
                 "semantic_search",
