@@ -14,6 +14,28 @@ GitHub sortira sans notes (cf. mémoire `gungnir-release-changelog-gotcha`).
 
 ## [Non publié]
 
+### Modifié — gate RAG strict recalibré sur le cosinus pur (Phase 2D)
+Le gate `MIN_RELEVANCE_SCORE` de Scáthach était inopérant depuis le passage
+à l'embedder multilingual-e5 (Phase 2A) : le seuil 0.42 datait de MiniLM,
+or e5 concentre les cosinus (~0.78-0.95) — TOUT passait, seul le garde
+« token rare » refusait. En plus, le gate lisait le score **boosté
+lexicalement** (+0.30 max), qui fait passer des hors-corpus à recouvrement
+lexical accidentel.
+- Danann pose désormais le **cosinus pur** dans `metadata["score_cosine"]`
+  sur tous les chemins de recherche (int8/binary/IVF via
+  `_candidates_from`, et le mode `compression="none"`), dans une meta
+  copiée (l'index partagé n'est pas pollué) ; le reranker préserve cette
+  valeur au lieu de l'écraser avec le score boosté.
+- Scáthach gate sur ce cosinus pur, seuil recalibré à **0.84** via le
+  nouveau jeu committé `scripts/eval_rag.py` (56 requêtes FR in-corpus /
+  24 hors-corpus, sweep de seuils sur l'index code 46k) : in-corpus
+  passants identiques (52/56), refus hors-corpus 16/24 → **20/24**.
+- Seuil surchargeable sans toucher au code : `MORRIGAN_MIN_RELEVANCE`
+  (invalide → ignoré avec warning, jamais d'exception au boot). À
+  recalibrer via `eval_rag.py --sweep` après tout changement d'embedder
+  ou de corpus.
+- 8 tests dédiés (`tests/test_rag_gate.py`).
+
 ### Modifié — mini-RAG fragmenté **ON par défaut** (ouverture Phase 2D)
 `MORRIGAN_SHARD_BY` vaut désormais `language` par défaut (vide = `language`
 aussi ; `off`/`none` = opt-out explicite). Justification : gain qualité

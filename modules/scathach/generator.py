@@ -8,6 +8,7 @@ Phase 2 : Backend RWKV (0.19B-1.5B) pour une vraie generation.
 
 import asyncio
 import logging
+import os
 import re
 import unicodedata
 from pathlib import Path
@@ -105,10 +106,18 @@ class Scathach(MorriganModule):
     """
 
     # Seuil de similarite minimal pour considerer un chunk comme pertinent.
-    # Si le reranker est actif, on utilise le score cosine original
-    # (stocke dans metadata["score_cosine"]) car le score cross-encoder
-    # est sur une echelle differente (-inf, +inf).
-    MIN_RELEVANCE_SCORE = 0.42
+    # Lu sur metadata["score_cosine"] = cosinus PUR posé par Danann (le
+    # score brut inclut un boost lexical jusqu'à +0.30 qui fausserait le
+    # gate ; le score reranker est sur une échelle différente).
+    #
+    # 0.84 : calibré pour l'embedder multilingual-e5 (Phase 2A) sur le jeu
+    # scripts/eval_rag.py (56 in-corpus / 24 hors-corpus, index code 46k) —
+    # in-corpus passants identiques au seuil historique (52/56), refus
+    # hors-corpus 16/24 → 20/24. L'ancien 0.42 datait de MiniLM : e5
+    # concentre les cosinus (~0.78-0.95), TOUT passait 0.42 et seul le
+    # garde « token rare » refusait. Au-delà de 0.85 l'in-corpus
+    # s'effondre (0.87 → 25/56). Surcharger via MORRIGAN_MIN_RELEVANCE.
+    MIN_RELEVANCE_SCORE = 0.84
 
     # Nombre max de chunks passés en contexte au backend RWKV.
     # Réduit de 4 à 2 après mesure : le prefill RWKV est ~linéaire en
@@ -143,6 +152,19 @@ class Scathach(MorriganModule):
         self.templates_dir = Path(templates_dir)
         self._rwkv = rwkv_backend
         self.strict_rag = strict_rag
+        # Surcharge optionnelle du seuil de pertinence (cf. attribut de
+        # classe) — ex. recalibrage après changement d'embedder ou de
+        # corpus, sans toucher au code. Invalide → ignoré (jamais
+        # d'exception au boot).
+        raw = os.environ.get("MORRIGAN_MIN_RELEVANCE", "").strip()
+        if raw:
+            try:
+                self.MIN_RELEVANCE_SCORE = float(raw)
+            except ValueError:
+                logger.warning(
+                    "MORRIGAN_MIN_RELEVANCE=%r invalide — seuil %s conservé",
+                    raw, self.MIN_RELEVANCE_SCORE,
+                )
         # Trace du dernier chemin de génération ("rwkv" / "template"),
         # exposée pour l'observabilité (/stats), notamment en streaming.
         self.last_generated_by: Optional[str] = None
