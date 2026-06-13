@@ -73,7 +73,10 @@ def _synthetic_danann(n=12, dim=8, **kwargs) -> Danann:
 def test_reranker_defaults_cpu_and_truncation():
     ce = CrossEncoderReranker()
     assert ce.device == "cpu"          # sans device explicite → CUDA error
-    assert ce.max_passage_chars == 512
+    # Défauts 2D : modèle multilingue + troncature 1000 (cut 500 mange le
+    # gain mesuré, cf. eval_rag.py).
+    assert ce.max_passage_chars == 1000
+    assert "mmarco" in ce.model_name
 
 
 def test_reranker_truncates_passages():
@@ -129,9 +132,15 @@ def test_retrieval_opts_defaults(monkeypatch):
         monkeypatch.delenv(var, raising=False)
     opts = _retrieval_opts(None)
     assert opts == {
-        "use_reranker": False, "ann": "flat",
+        "use_reranker": True, "ann": "flat",
         "ivf_probes": None, "shard_by": "language",
     }
+    # Reranker : ON par défaut (Phase 2D), opt-out explicite via "off".
+    monkeypatch.setenv("MORRIGAN_RERANKER", "off")
+    assert _retrieval_opts(None)["use_reranker"] is False
+    monkeypatch.setenv("MORRIGAN_RERANKER", "")
+    assert _retrieval_opts(None)["use_reranker"] is True
+    monkeypatch.delenv("MORRIGAN_RERANKER")
     # Valeurs invalides → replis silencieux, jamais d'exception au boot.
     monkeypatch.setenv("MORRIGAN_ANN", "nimporte")
     monkeypatch.setenv("MORRIGAN_IVF_PROBES", "pas-un-nombre")
@@ -177,13 +186,13 @@ def test_build_danann_env_wiring(tmp_path, monkeypatch):
     d = build_danann(index_path=str(idx))
     assert d.ann == "ivf"
     assert d.ivf_probes == 2
-    assert d.reranker is None            # défaut post-audit : OFF
+    assert d.reranker is not None        # défaut 2D : ON (mmarco multilingue)
     assert d.shard_by == "language"      # défaut : shards ON (dégrade seul)
     assert d.count() == 10
 
-    monkeypatch.setenv("MORRIGAN_RERANKER", "on")
+    monkeypatch.setenv("MORRIGAN_RERANKER", "off")
     d = build_danann(index_path=str(idx))
-    assert d.reranker is not None
+    assert d.reranker is None
 
 
 # ─── Mini-RAG fragmenté (shards par métadonnée) ───────────────────────

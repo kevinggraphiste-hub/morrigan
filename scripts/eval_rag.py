@@ -165,12 +165,16 @@ def main():
                     help="seuil MIN_RELEVANCE_SCORE à évaluer (défaut : runtime)")
     ap.add_argument("--sweep", action="store_true",
                     help="balayer une grille de seuils (calibration)")
+    ap.add_argument("--no-reranker", action="store_true",
+                    help="désactiver le cross-encoder (défaut : config "
+                         "runtime complète, mmarco fenêtre 16 cut 1000)")
     args = ap.parse_args()
 
     from modules.danann.store import Danann
     from modules.scathach.generator import Scathach
 
-    d = Danann.load_index(args.index, use_reranker=False, shard_by="language")
+    d = Danann.load_index(args.index, use_reranker=not args.no_reranker,
+                          shard_by="language")
     d._ensure_embeddings_loaded()
     scathach = Scathach(backend="template")
 

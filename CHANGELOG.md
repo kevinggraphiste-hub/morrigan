@@ -14,6 +14,32 @@ GitHub sortira sans notes (cf. mémoire `gungnir-release-changelog-gotcha`).
 
 ## [Non publié]
 
+### Modifié — reranker multilingue **ON par défaut** (Phase 2D)
+L'audit 2026-06-12 concluait « aucun gain fiable » pour le reranker — la
+2D identifie la cause racine : la combinaison testée (modèle ms-marco
+**anglais** + fenêtre 8 + troncature 512) est précisément celle qui ne
+gagne rien. Avec les bons réglages, le gain FR est net et reproductible
+(jeu `scripts/eval_rag.py`, 56 requêtes in-corpus, index code 46k) :
+
+| Config | hit@3 | latence/req (CPU dev) |
+|---|---|---|
+| sans reranker (baseline) | 43/56 | — |
+| ms-marco EN (ancienne) | 45/56 (bruit) | ~0.9 s |
+| **mmarco multilingue, fenêtre 16, cut 1000** | **48/56** | ~1.8 s |
+| mmarco, fenêtre 8 ou cut 500 | 44-46/56 | ~0.4-0.8 s |
+
+Changements :
+- `CrossEncoderReranker.DEFAULT_MODEL` → `cross-encoder/mmarco-mMiniLMv2-
+  L12-H384-v1` (multilingue dont FR, ~135 Mo, téléchargé au premier usage) ;
+- `max_passage_chars` 512 → 1000 et `rerank_window` 8 → 16 (`RERANK_POOL`) :
+  les valeurs allégées mangent le gain — ne pas re-trimmer sans re-mesurer ;
+- `MORRIGAN_RERANKER` : défaut `on` (opt-out `off`, ex. retrieval standalone
+  où la latence prime). Échec de chargement → dégradation propre (candidats
+  non re-classés). ~1.8 s/req à mettre en regard des ~12 s de génération RWKV.
+- Gate RAG strict vérifié tenu avec reranker actif : in-corpus 51/56
+  passants, hors-corpus 20/24 refusés (le reranker préserve le cosinus pur
+  que lit le gate).
+
 ### Modifié — gate RAG strict recalibré sur le cosinus pur (Phase 2D)
 Le gate `MIN_RELEVANCE_SCORE` de Scáthach était inopérant depuis le passage
 à l'embedder multilingual-e5 (Phase 2A) : le seuil 0.42 datait de MiniLM,
