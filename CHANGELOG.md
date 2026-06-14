@@ -14,6 +14,12 @@ GitHub sortira sans notes (cf. mémoire `gungnir-release-changelog-gotcha`).
 
 ## [Non publié]
 
+### Docs — synchro Phase 2D
+`AGENTS.md` (état, ligne Danann, compteur de tests, bug CUDA corrigé, roadmap 2D),
+`README.md` / `PITCH.md` (reranker multilingue ON, compteur **411 tests**), et bandeau
+« document dépassé » en tête de `docs/audit-retrieval-2026-06-12.md` (sa reco de couper le
+reranker est caduque ; le diagnostic latence reste valide).
+
 ### Modifié — reranker multilingue **ON par défaut** (Phase 2D)
 L'audit 2026-06-12 concluait « aucun gain fiable » pour le reranker — la
 2D identifie la cause racine : la combinaison testée (modèle ms-marco

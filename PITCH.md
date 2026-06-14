@@ -24,7 +24,7 @@ sa tâche :
 ## Où on en est (Phases 1-4 livrées, Phase 5 en cours)
 
 - ✅ Pipeline end-to-end CPU, ~50-150 ms/query sur i5
-- ✅ Reranker cross-encoder + métadonnées riches sur les chunks
+- ✅ Reranker cross-encoder **multilingue** (mmarco, ON par défaut, gain FR mesuré) + métadonnées riches sur les chunks
 - ✅ **Morrigan-Code 6/6 langages** (Python `ast`, Bash `bash -n`, JS
   `node --check`, SQL `sqlparse`, HTML `html.parser`, CSS `tinycss2`).
   Subprocess sécurisé, stdin only, timeout 5s.
@@ -83,8 +83,8 @@ Le tout en CPU local, sans appeler un seul LLM externe.
 
 ## Compteurs sympas
 
-- **396 tests pytest verts**, 0 xfailed
-- **~50 PRs mergées**, CI verte de bout en bout
+- **411 tests pytest verts**, 0 xfailed
+- **55 PRs mergées**, CI verte de bout en bout
 - **Déterminisme parfait local ↔ CI** sur l'entraînement Brigid (seed 42)
 - Gros corpus encyclopédique réel tenu **sur PC modeste** : index
   Wikipédia int8 chargé en 0.29 s, RAM réduite ×4
