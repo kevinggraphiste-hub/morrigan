@@ -46,10 +46,14 @@ def _is_valid_index(path: Path) -> bool:
 def _retrieval_opts(use_reranker: bool | None) -> dict:
     """Options retrieval du runtime, résolues depuis l'env (audit 2026-06-12).
 
-    - Reranker **OFF par défaut** : le cross-encoder ms-marco (anglais)
-      n'apporte pas de gain fiable mesuré en FR, pour ~300 ms+ par requête
-      (cf. docs/audit-retrieval-2026-06-12.md). `MORRIGAN_RERANKER=on`
-      pour le réactiver (ré-évaluation Phase 2D).
+    - Reranker **ON par défaut** depuis la Phase 2D : le cross-encoder
+      multilingue mmarco (fenêtre 16, troncature 1000) apporte un gain
+      FR mesuré — hit@3 48/56 vs 43/56 (scripts/eval_rag.py), gate RAG
+      strict tenu — pour ~1.8 s/req CPU (vs ~12 s de génération RWKV).
+      L'ancien OFF (audit 06-12) jugeait la combinaison ms-marco anglais
+      + fenêtre 8 + troncature 512, qui ne gagnait rien.
+      `MORRIGAN_RERANKER=off` pour désactiver (échec de chargement du
+      modèle → dégradation propre, candidats non re-classés).
     - `MORRIGAN_ANN=ivf` active la recherche sous-linéaire (IVF),
       `MORRIGAN_IVF_PROBES` règle le compromis recall/latence.
     - Mini-RAG fragmenté **ON par défaut** (`MORRIGAN_SHARD_BY=language`) :
@@ -61,7 +65,7 @@ def _retrieval_opts(use_reranker: bool | None) -> dict:
       `MORRIGAN_SHARD_BY=off` (ou `none`) pour désactiver explicitement.
     """
     if use_reranker is None:
-        use_reranker = os.environ.get(RERANKER_ENV, "off").strip().lower() == "on"
+        use_reranker = os.environ.get(RERANKER_ENV, "on").strip().lower() != "off"
     ann = os.environ.get(ANN_ENV, "flat").strip().lower() or "flat"
     if ann not in ("flat", "ivf"):
         logger.warning("%s=%r inconnu — repli sur 'flat'", ANN_ENV, ann)

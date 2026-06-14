@@ -4,17 +4,20 @@ DANANN — Reranker cross-encoder.
 Prend les top-K candidats du retrieval cosine et les re-classe
 avec un modele cross-encoder plus precis (mais plus lent).
 
-Phase 2 : cross-encoder/ms-marco-MiniLM-L-6-v2 (~22 Mo, CPU)
+Phase 2D : cross-encoder/mmarco-mMiniLMv2-L12-H384-v1 (multilingue, CPU)
    - Input : paire (query, chunk_text)
    - Output : score de pertinence [-inf, +inf] (plus haut = plus pertinent)
-   - Latence MESURÉE : ~117 ms/paire sur le CPU dev (i5-10210U, chunks
-     ~570 chars) — cf. docs/audit-retrieval-2026-06-12.md. La troncature
-     des passages (`max_passage_chars`) divise ce coût par ~2-3.
+   - Gain MESURÉ sur requêtes FR (jeu scripts/eval_rag.py, pool 16,
+     troncature 1000) : hit@3 48/56 vs 43/56 sans reranker, pour
+     ~1.5 s/req sur le CPU dev. Les configs allégées perdent le gain
+     (pool 8 + cut 500 → 44/56, dans le bruit) : ne pas re-trimmer sans
+     re-mesurer via eval_rag.py.
 
 Le cross-encoder voit la query ET le chunk ensemble (attention croisée),
-là où le bi-encoder les encode séparément. ⚠️ ms-marco est un modèle
-**anglais** : l'audit 2026-06-12 ne mesure aucun gain fiable sur des
-requêtes FR → désactivé par défaut au runtime (cf. core/knowledge.py).
+là où le bi-encoder les encode séparément. Historique : l'audit
+2026-06-12 ne mesurait « aucun gain fiable » — cause racine identifiée
+en 2D = modèle ms-marco **anglais** + pool k*3=9 + troncature 512, soit
+précisément la combinaison qui ne gagne rien.
 
 Post-audit : `device="cpu"` par défaut — sans device explicite,
 sentence-transformers choisit CUDA si disponible, ce qui plantait
@@ -35,25 +38,26 @@ class CrossEncoderReranker:
     Lazy-load : le modele n'est charge qu'au premier appel.
     """
 
-    # Modele par defaut : ms-marco-MiniLM-L-6-v2
-    # - Entrainement : MS MARCO passage ranking
-    # - Taille : ~22 Mo
-    # - Latence : ~5-15 ms/paire CPU
-    # - Qualite : NDCG@10 ~0.39 sur MS MARCO (excellent pour sa taille)
-    DEFAULT_MODEL = "cross-encoder/ms-marco-MiniLM-L-6-v2"
+    # Modele par defaut : mmarco-mMiniLMv2-L12-H384-v1
+    # - Entrainement : mMARCO passage ranking (multilingue, dont FR)
+    # - Taille : ~135 Mo (33M params)
+    # - Seul des deux candidats testés à apporter un gain FR mesuré
+    #   (cf. docstring module) ; ms-marco-MiniLM-L-6-v2 (anglais) reste
+    #   passable via model_name pour un corpus 100% EN.
+    DEFAULT_MODEL = "cross-encoder/mmarco-mMiniLMv2-L12-H384-v1"
 
     def __init__(
         self,
         model_name: Optional[str] = None,
         device: str = "cpu",
-        max_passage_chars: Optional[int] = 512,
+        max_passage_chars: Optional[int] = 1000,
     ):
         self.model_name = model_name or self.DEFAULT_MODEL
         self.device = device
         # Troncature des passages envoyés au cross-encoder. Coût quasi
-        # linéaire en longueur de texte ; 512 chars suffisent au modèle
-        # pour juger la pertinence (mesuré : ~2× plus rapide, cf. audit).
-        # None = passages complets.
+        # linéaire en longueur de texte, mais descendre sous 1000 chars
+        # mange le gain qualité (mesuré : cut 500 → 44/56 vs 46-48/56,
+        # cf. docstring module). None = passages complets.
         self.max_passage_chars = max_passage_chars
         self.model = None
         logger.info(

@@ -28,6 +28,11 @@ from modules.danann.supabase_backend import SupabaseVectorStore
 
 logger = logging.getLogger("morrigan.danann")
 
+# Pool de candidats minimum passé au cross-encoder quand le reranker est
+# actif. 16 = point de fonctionnement mesuré (scripts/eval_rag.py, 2D) :
+# hit@3 48/56, contre 46/56 à 8 et 42/56 à 6 (sous la baseline 43/56).
+RERANK_POOL = 16
+
 # Stopwords FR/EN pour le boost lexical — mots trop courants pour discriminer
 _STOPWORDS: Set[str] = {
     "le", "la", "les", "un", "une", "des", "du", "de", "et", "ou", "est",
@@ -70,7 +75,7 @@ class Danann(MorriganModule):
         top_k: int = 5,
         use_reranker: bool = True,
         reranker_top_k: int = 3,
-        rerank_window: int = 8,
+        rerank_window: int = RERANK_POOL,
         compression: str = "none",
         ann: str = "flat",
         ivf_probes: Optional[int] = None,
@@ -80,9 +85,11 @@ class Danann(MorriganModule):
         self.backend = backend
         self.top_k = top_k
         self.reranker_top_k = reranker_top_k
-        # Nb max de candidats passés au cross-encoder (post-audit : son coût
-        # est ~linéaire en paires, ~117 ms/paire CPU ; au-delà de ~8 le gain
-        # qualité mesuré est nul voire négatif — cf. audit 2026-06-12).
+        # Nb max de candidats passés au cross-encoder (coût ~linéaire en
+        # paires). 16 = RERANK_POOL, point de fonctionnement mesuré en 2D
+        # avec mmarco (le « ≤8 sinon gain nul » de l'audit 06-12 valait
+        # pour ms-marco anglais : la fenêtre 8 mangeait le gain, 46/56 vs
+        # 48/56 — cf. scripts/eval_rag.py).
         self.rerank_window = rerank_window
 
         # Phase 4 : compression de l'index mémoire.
@@ -403,7 +410,10 @@ class Danann(MorriganModule):
         # de candidats pour compenser le filtrage et nourrir le reranker.
         pre_k = k * 3 if (domain or chunk_type) else k
         if self.reranker:
-            pre_k = max(pre_k, k * 3)
+            # Pool 16 minimum : mesuré (eval_rag.py, Phase 2D) — c'est la
+            # taille qui porte le gain du cross-encoder (48/56 vs 46/56 à
+            # pool 8 ; k*3=9 était la config « aucun gain » de l'audit).
+            pre_k = max(pre_k, RERANK_POOL)
 
         # Boost lexical : +0.08 par token rare de la query present dans le
         # chunk (plafonne a +0.30). Corrige les cas ou deux chunks ont un
