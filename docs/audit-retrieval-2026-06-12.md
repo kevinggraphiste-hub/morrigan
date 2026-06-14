@@ -1,5 +1,15 @@
 # Audit latence retrieval Danann — verdict mesuré (2026-06-12)
 
+> ⚠️ **Document historique (point-in-time).** Sa conclusion « reranker = aucun gain
+> fiable, à désactiver » a été **dépassée par la Phase 2D** (PRs #51→#55). La cause
+> racine du non-gain était la combinaison testée — modèle `ms-marco` **anglais** +
+> fenêtre 8 + troncature 512 — pas le reranker en soi. Avec le modèle **multilingue
+> `mmarco`**, fenêtre 16 et cut 1000, le gain FR est mesuré et reproductible
+> (hit@3 48/56 vs 43/56, `scripts/eval_rag.py`) : le reranker est désormais **ON par
+> défaut**. Le diagnostic *latence* ci-dessous (le reranker domine le coût) reste
+> valide ; seule la recommandation de le couper est caduque. Détails dans le CHANGELOG
+> (entrées Phase 2D) et `AGENTS.md`.
+
 **Contexte.** Hypothèse de départ : « Danann est trop lent à l'échelle, et un
 mini-RAG fragmenté serait plus efficace qu'un gros corpus monolithique. »
 Méthode imposée : mesurer avant de proposer (`time.perf_counter`), vérifier

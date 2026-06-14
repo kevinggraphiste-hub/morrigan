@@ -110,12 +110,12 @@ Six modules nommés d'après la mythologie celtique :
 - **Knowledge graph** (Ogham) : 267 entités / 430 relations extraites du corpus, requêtes `compare` / `facts_about`
 - **Agent Morrigan-Code** : vérification de syntaxe 6 langages (Python, Bash, JS, SQL, HTML, CSS)
 - **Compression d'index vectoriel** (Danann) : quantization int8 (×4) / binary (×32 + 2 étages), persistance disque sans float32, ANN IVF sous-linéaire — pour tenir un gros corpus sur PC modeste
-- Retrieval hybride Danann : cosine + boost lexical + reranker cross-encoder, filtrage par domaine, garde anti-faux-positif
+- Retrieval hybride Danann : cosine + boost lexical + reranker cross-encoder **multilingue** (mmarco, ON par défaut, fenêtre 16) + mini-RAG fragmenté par langage, filtrage par domaine, garde anti-faux-positif
 - Observabilité `/stats` (CLI + Telegram) : routage, probas Brigid, generated_by, latence
 - Interfaces CLI + Telegram (streaming), `.env` auto-load, backends Danann branchables (memory / Supabase pgvector), scripts d'ingestion
 - **API OpenAI-compatible** (`/v1/chat/completions`, `/v1/models`) : branchable tel quel comme provider custom dans un client OpenAI (dont Gungnir)
 - **Corpus de documentation code multi-langage** (Phases 2B/2C) : registre de sources (Python officiel + pydoc, pages man bash/git/CLI), chunker code-aware, index `int8` interrogeable en FR
-- **396 tests** (pytest), 6 workflows CI (tests, version-sync, release, brigid-train, kg-build, docker-build)
+- **411 tests** (pytest), 6 workflows CI (tests, version-sync, release, brigid-train, kg-build, docker-build)
 
 ### Performances mesurées
 
